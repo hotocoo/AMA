@@ -26,7 +26,7 @@
 - **Metadata Stripping** - Complete removal of IP addresses, timestamps, and device info
 - **Screenshot Protection** - Advanced anti-capture mechanisms
 
-### 💬 **WhatsApp+ Feature Set**
+### 💬 **Messenger+ Feature Set**
 - **Real-time Messaging** - Instant message delivery with WebSocket technology
 - **File Sharing** - Documents, images, videos, audio with size optimization
 - **Voice Messages** - High-quality audio with playback speed controls
