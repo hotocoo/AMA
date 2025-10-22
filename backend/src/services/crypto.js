@@ -116,53 +116,58 @@ class KeyManager {
   }
 
   /**
-   * Encrypt message with AES-256-GCM
-   */
-  async encryptMessage(message, key) {
-    try {
-      // Generate random IV
-      const iv = crypto.randomBytes(16);
+    * Encrypt message with AES-256-GCM
+    */
+   async encryptMessage(message, key) {
+     try {
+       // Generate random IV
+       const iv = crypto.randomBytes(16);
+       const keyBuffer = Buffer.from(key);
+       const messageBuffer = Buffer.from(message, 'utf8');
 
-      // Create cipher
-      const cipher = crypto.createCipher('aes-256-gcm', key);
+       // Create cipher
+       const cipher = crypto.createCipherGCM('aes-256-gcm', keyBuffer, iv);
 
-      // Encrypt message
-      let encrypted = cipher.update(message, 'utf8', 'hex');
-      encrypted += cipher.final('hex');
+       // Encrypt message
+       let encrypted = cipher.update(messageBuffer, null, 'hex');
+       encrypted += cipher.final('hex');
 
-      // Get auth tag
-      const authTag = cipher.getAuthTag();
+       // Get auth tag
+       const authTag = cipher.getAuthTag();
 
-      return {
-        encrypted,
-        iv: iv.toString('base64'),
-        authTag: authTag.toString('base64'),
-      };
-    } catch (error) {
-      throw new Error(`Message encryption failed: ${error.message}`);
-    }
-  }
+       return {
+         encrypted,
+         iv: iv.toString('base64'),
+         authTag: authTag.toString('base64'),
+       };
+     } catch (error) {
+       throw new Error(`Message encryption failed: ${error.message}`);
+     }
+   }
 
-  /**
-   * Decrypt message with AES-256-GCM
-   */
-  async decryptMessage(encryptedData, key) {
-    try {
-      const { encrypted, iv, authTag } = encryptedData;
+   /**
+    * Decrypt message with AES-256-GCM
+    */
+   async decryptMessage(encryptedData, key) {
+     try {
+       const { encrypted, iv, authTag } = encryptedData;
+       const keyBuffer = Buffer.from(key);
+       const ivBuffer = Buffer.from(iv, 'base64');
+       const authTagBuffer = Buffer.from(authTag, 'base64');
 
-      // Create decipher
-      const decipher = crypto.createDecipher('aes-256-gcm', key);
-      decipher.setAuthTag(Buffer.from(authTag, 'base64'));
+       // Create decipher
+       const decipher = crypto.createDecipherGCM('aes-256-gcm', keyBuffer, ivBuffer);
+       decipher.setAuthTag(authTagBuffer);
 
-      // Decrypt message
-      let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-      decrypted += decipher.final('utf8');
+       // Decrypt message
+       let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+       decrypted += decipher.final('utf8');
 
-      return decrypted;
-    } catch (error) {
-      throw new Error(`Message decryption failed: ${error.message}`);
-    }
-  }
+       return decrypted;
+     } catch (error) {
+       throw new Error(`Message decryption failed: ${error.message}`);
+     }
+   }
 
   /**
    * Create digital signature

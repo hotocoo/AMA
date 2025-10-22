@@ -7,8 +7,12 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const crypto = require('crypto');
 
-// Anonymous session tracking (no personal data)
-const anonymousSessions = new Map();
+// Anonymous session tracking in Redis (for scalability)
+let redisClient = null;
+
+const setRedisClient = (client) => {
+  redisClient = client;
+};
 
 /**
  * Advanced security middleware setup
@@ -68,35 +72,33 @@ const setupSecurity = (app) => {
 
 /**
  * Anonymous session middleware
- * Tracks sessions without collecting personal data
+ * Tracks sessions without collecting personal data using Redis
  */
 const anonymousSessionMiddleware = (req, res, next) => {
   // Generate anonymous session ID
   const sessionId = req.headers['x-anonymous-session'] ||
     `anon_${crypto.randomBytes(16).toString('hex')}`;
 
-  // Store anonymous session info (no personal data)
-  anonymousSessions.set(sessionId, {
+  // Store anonymous session info in Redis (no personal data)
+  const sessionKey = `anon_session:${sessionId}`;
+  const sessionData = {
     id: sessionId,
     created: Date.now(),
     lastSeen: Date.now(),
-    requestCount: (anonymousSessions.get(sessionId)?.requestCount || 0) + 1,
+    requestCount: 1,
     // No IP tracking, no user agent storage beyond what's necessary
-  });
+  };
+
+  // Update session in Redis with TTL
+  if (redisClient) {
+    redisClient.setex(sessionKey, 24 * 60 * 60, JSON.stringify(sessionData)); // 24 hours TTL
+  }
 
   // Add session ID to request for downstream use
   req.anonymousSession = {
     id: sessionId,
     // Don't expose internal data
   };
-
-  // Clean up old sessions (older than 24 hours)
-  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-  for (const [id, session] of anonymousSessions.entries()) {
-    if (session.lastSeen < oneDayAgo) {
-      anonymousSessions.delete(id);
-    }
-  }
 
   next();
 };
@@ -173,6 +175,21 @@ const validateInput = (req, res, next) => {
     // Additional JSON validation will be handled by express.json()
   }
 
+  // Validate request body for SQL injection and XSS
+  if (req.body && typeof req.body === 'object') {
+    const sanitizeObject = (obj) => {
+      for (let key in obj) {
+        if (typeof obj[key] === 'string') {
+          // Basic sanitization: remove potential script tags
+          obj[key] = obj[key].replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+        } else if (typeof obj[key] === 'object') {
+          sanitizeObject(obj[key]);
+        }
+      }
+    };
+    sanitizeObject(req.body);
+  }
+
   next();
 };
 
@@ -224,7 +241,7 @@ const validateWebSocketConnection = (req, res, next) => {
 };
 
 /**
- * Anti-replay attack protection
+ * Anti-replay attack protection using Redis
  */
 const replayProtection = (req, res, next) => {
   // Simple nonce-based replay protection
@@ -240,23 +257,27 @@ const replayProtection = (req, res, next) => {
       return res.status(401).json({ error: 'Request timestamp expired' });
     }
 
-    // Check for nonce reuse (simplified - in production use Redis)
-    if (req.anonymousSession) {
-      const sessionNonces = anonymousSessions.get(req.anonymousSession.id)?.nonces || new Set();
-      if (sessionNonces.has(nonce)) {
-        return res.status(401).json({ error: 'Nonce already used' });
-      }
-      sessionNonces.add(nonce);
+    // Check for nonce reuse using Redis
+    if (req.anonymousSession && redisClient) {
+      const nonceKey = `nonce:${req.anonymousSession.id}:${nonce}`;
+      redisClient.get(nonceKey, (err, result) => {
+        if (err) {
+          return res.status(500).json({ error: 'Replay protection error' });
+        }
+        if (result) {
+          return res.status(401).json({ error: 'Nonce already used' });
+        }
 
-      // Keep only recent nonces
-      if (sessionNonces.size > 100) {
-        const recentNonces = Array.from(sessionNonces).slice(-50);
-        anonymousSessions.get(req.anonymousSession.id).nonces = new Set(recentNonces);
-      }
+        // Store nonce with 5-minute TTL
+        redisClient.setex(nonceKey, 5 * 60, '1');
+        next();
+      });
+    } else {
+      next();
     }
+  } else {
+    next();
   }
-
-  next();
 };
 
 /**
@@ -270,4 +291,5 @@ module.exports = {
   secureLogger,
   validateWebSocketConnection,
   replayProtection,
+  setRedisClient,
 };

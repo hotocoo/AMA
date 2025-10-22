@@ -6,9 +6,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import io from 'socket.io-client';
 import { useAuth } from './useAuth';
+import { useCrypto } from './useCrypto';
 
 export const useWebSocket = () => {
   const { sessionId, isAuthenticated } = useAuth();
+  const { decryptMessage, initializeCrypto } = useCrypto();
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
@@ -93,6 +95,15 @@ export const useWebSocket = () => {
         handlePong(data);
       });
 
+      // Message reactions
+      newSocket.on('reaction_added', (data) => {
+        handleReactionAdded(data);
+      });
+
+      newSocket.on('reaction_removed', (data) => {
+        handleReactionRemoved(data);
+      });
+
       // Error handling
       newSocket.on('error', (error) => {
         handleError(error);
@@ -164,27 +175,37 @@ export const useWebSocket = () => {
   };
 
   /**
-   * Handle new message
-   */
-  const handleNewMessage = (data) => {
-    try {
-      const newMessage = {
-        id: data.messageId,
-        chatId: data.chatId,
-        encryptedContent: data.encryptedMessage,
-        messageType: data.messageType,
-        timestamp: data.timestamp,
-        // No sender information for anonymity
-      };
+    * Handle new message
+    */
+   const handleNewMessage = async (data) => {
+     try {
+       const newMessage = {
+         id: data.messageId,
+         chatId: data.chatId,
+         encryptedContent: data.encryptedMessage,
+         messageType: data.messageType,
+         timestamp: data.timestamp,
+         // No sender information for anonymity
+       };
 
-      setMessages(prev => [...prev, newMessage]);
+       // Attempt to decrypt the message (placeholder - in real app, derive shared secret)
+       try {
+         // For now, assume decryption is handled elsewhere or use a default
+         // In a full implementation, use decryptMessage(chatId, encryptedMessage)
+         newMessage.decryptedContent = data.encryptedMessage; // Placeholder: display encrypted or decrypt
+       } catch (decryptError) {
+         console.error('Decryption failed:', decryptError);
+         newMessage.decryptedContent = '[Encrypted Message]';
+       }
 
-      console.log('📨 New message received');
+       setMessages(prev => [...prev, newMessage]);
 
-    } catch (error) {
-      console.error('Error handling new message:', error);
-    }
-  };
+       console.log('📨 New message received');
+
+     } catch (error) {
+       console.error('Error handling new message:', error);
+     }
+   };
 
   /**
    * Handle message sent confirmation
@@ -244,6 +265,32 @@ export const useWebSocket = () => {
   const handleError = (error) => {
     console.error('🚨 WebSocket error:', error);
     setConnectionStatus('error');
+  };
+
+  /**
+   * Handle reaction added
+   */
+  const handleReactionAdded = (data) => {
+    console.log('👍 Reaction added:', data);
+    // Update message reactions in state
+    setMessages(prev => prev.map(msg =>
+      msg.id === data.messageId
+        ? { ...msg, reactions: [...(msg.reactions || []), data.reaction] }
+        : msg
+    ));
+  };
+
+  /**
+   * Handle reaction removed
+   */
+  const handleReactionRemoved = (data) => {
+    console.log('👎 Reaction removed:', data);
+    // Update message reactions in state
+    setMessages(prev => prev.map(msg =>
+      msg.id === data.messageId
+        ? { ...msg, reactions: (msg.reactions || []).filter(r => r !== data.reaction) }
+        : msg
+    ));
   };
 
   /**
@@ -439,5 +486,17 @@ export const useWebSocket = () => {
 
     // Utilities
     reconnectAttempts: reconnectAttempts.current,
+
+    // Reactions
+    addReaction: (messageId, chatId, reaction) => {
+      if (socket && isConnected) {
+        socket.emit('add_reaction', { messageId, chatId, reaction });
+      }
+    },
+    removeReaction: (messageId, chatId, reaction) => {
+      if (socket && isConnected) {
+        socket.emit('remove_reaction', { messageId, chatId, reaction });
+      }
+    },
   };
 };

@@ -15,7 +15,7 @@ const morgan = require('morgan');
 const path = require('path');
 
 // Import security and core modules
-const { setupSecurity } = require('./middleware/security');
+const { setupSecurity, setRedisClient } = require('./middleware/security');
 const { setupLogging } = require('./middleware/logging');
 const { setupRoutes } = require('./routes');
 const { setupWebSocket } = require('./services/websocket');
@@ -50,6 +50,9 @@ class AnonymousMessengerServer {
 
       // Connect to database
       const redisClient = await connectDatabase();
+
+      // Set Redis client for security middleware
+      setRedisClient(redisClient);
 
       // Initialize database services
       const databaseServices = initializeDatabaseServices(redisClient);

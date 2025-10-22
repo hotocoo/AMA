@@ -32,8 +32,8 @@ const sendMessage = async (req, res) => {
     await databaseServices.messageStore.storeMessage(messageId, encryptedMessage, chatId, metadata);
 
     // Update session message count
-    if (req.sessionId && databaseServices.sessionManager) {
-      await databaseServices.sessionManager.incrementMessageCount(req.sessionId);
+    if (req.anonymousSession?.id && databaseServices.sessionManager) {
+      await databaseServices.sessionManager.incrementMessageCount(req.anonymousSession.id);
     }
 
     // Log message event (privacy-preserving)
@@ -144,6 +144,32 @@ const getChatInfo = async (req, res) => {
   }
 };
 
+// Create chat
+const createChat = async (req, res) => {
+  try {
+    const { participants = [], chatType = 'private' } = req.body;
+
+    if (!participants || participants.length === 0) {
+      return res.status(400).json({ error: 'Participants required' });
+    }
+
+    // Generate chat ID
+    const chatId = generateId();
+
+    // For now, just return the chat ID; in full implementation, store chat metadata
+    res.json({
+      chatId,
+      chatType,
+      participants,
+      created: Date.now(),
+      timestamp: Date.now()
+    });
+  } catch (error) {
+    logError(error, { context: 'create_chat' });
+    res.status(500).json({ error: 'Failed to create chat' });
+  }
+};
+
 // Get user chats
 const getUserChats = async (req, res) => {
   try {
@@ -170,5 +196,6 @@ module.exports = {
   getMessage,
   deleteMessage,
   getChatInfo,
-  getUserChats
+  getUserChats,
+  createChat
 };

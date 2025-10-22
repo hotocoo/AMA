@@ -54,12 +54,15 @@ const setupRoutes = (app) => {
   app.delete('/api/files/:fileId', fileController.deleteFile);
 
   // Chat routes
-  app.post('/api/chats/create', createRateLimit(3600000, 10, 'Chat creation rate limit exceeded'));
+  app.post('/api/chats/create', createRateLimit(3600000, 10, 'Chat creation rate limit exceeded'), messageController.createChat);
   app.get('/api/chats/:chatId', messageController.getChatInfo);
   app.get('/api/chats', messageController.getUserChats);
 
   // WebRTC signaling routes (for fallback)
   app.post('/api/webrtc/signal', createRateLimit(60000, 100, 'WebRTC signaling rate limit exceeded'));
+
+  // Key exchange for end-to-end encryption
+  app.post('/api/keys/exchange', createRateLimit(60000, 10, 'Key exchange rate limit exceeded'), sessionController.exchangeKeys);
 
   // Statistics (privacy-preserving)
   app.get('/api/stats', createRateLimit(3600000, 10, 'Statistics rate limit exceeded'));

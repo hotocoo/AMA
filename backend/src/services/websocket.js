@@ -92,6 +92,15 @@ class WebSocketManager {
       this.handleMessageRead(socket, connectionId, data);
     });
 
+    // Message reactions
+    socket.on('add_reaction', (data) => {
+      this.handleAddReaction(socket, connectionId, data);
+    });
+
+    socket.on('remove_reaction', (data) => {
+      this.handleRemoveReaction(socket, connectionId, data);
+    });
+
     // File sharing
     socket.on('share_file', async (data) => {
       await this.handleFileShare(socket, connectionId, data);
@@ -488,6 +497,38 @@ class WebSocketManager {
 
     } catch (error) {
       logError(error, { context: 'connection_cleanup' });
+    }
+  }
+
+  /**
+   * Handle add reaction
+   */
+  handleAddReaction(socket, connectionId, data) {
+    const { messageId, chatId, reaction } = data;
+
+    if (messageId && chatId && reaction) {
+      socket.to(`chat:${chatId}`).emit('reaction_added', {
+        messageId,
+        chatId,
+        reaction,
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  /**
+   * Handle remove reaction
+   */
+  handleRemoveReaction(socket, connectionId, data) {
+    const { messageId, chatId, reaction } = data;
+
+    if (messageId && chatId && reaction) {
+      socket.to(`chat:${chatId}`).emit('reaction_removed', {
+        messageId,
+        chatId,
+        reaction,
+        timestamp: Date.now(),
+      });
     }
   }
 

@@ -215,10 +215,45 @@ const getSessionStats = async (req, res) => {
   }
 };
 
+/**
+ * Exchange public keys for end-to-end encryption
+ */
+const exchangeKeys = async (req, res) => {
+  try {
+    const { publicKey } = req.body;
+
+    if (!publicKey) {
+      return res.status(400).json({
+        error: 'Public key required',
+        timestamp: Date.now(),
+      });
+    }
+
+    // For anonymous messenger, we don't store keys persistently
+    // In a real implementation, you might store public keys temporarily
+    // or use a key server
+
+    res.json({
+      success: true,
+      message: 'Key exchange completed',
+      timestamp: Date.now(),
+      note: 'Public key received, but not stored for anonymity'
+    });
+
+  } catch (error) {
+    logError(error, { context: 'key_exchange' });
+    res.status(500).json({
+      error: 'Failed to exchange keys',
+      timestamp: Date.now(),
+    });
+  }
+};
+
 module.exports = {
   createSession,
   getSession,
   updateSession,
   deleteSession,
   getSessionStats,
+  exchangeKeys,
 };
