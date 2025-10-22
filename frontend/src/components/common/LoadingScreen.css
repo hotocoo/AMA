@@ -1,0 +1,77 @@
+/**
+ * Loading Screen Styles
+ * Styles for the loading screen component
+ */
+
+.loading-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: var(--background-color, #0f172a);
+  color: var(--text-primary, #f8fafc);
+}
+
+.loading-container {
+  text-align: center;
+  padding: 2rem;
+}
+
+.loading-spinner {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 1.5rem;
+}
+
+.spinner-ring {
+  position: absolute;
+  border: 3px solid transparent;
+  border-top: 3px solid #2563eb;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.spinner-ring:nth-child(1) {
+  width: 48px;
+  height: 48px;
+  animation-delay: 0s;
+}
+
+.spinner-ring:nth-child(2) {
+  width: 36px;
+  height: 36px;
+  top: 6px;
+  left: 6px;
+  border-top-color: #64748b;
+  animation-delay: 0.1s;
+}
+
+.spinner-ring:nth-child(3) {
+  width: 24px;
+  height: 24px;
+  top: 12px;
+  left: 12px;
+  border-top-color: #10b981;
+  animation-delay: 0.2s;
+}
+
+.spinner-ring:nth-child(4) {
+  width: 12px;
+  height: 12px;
+  top: 18px;
+  left: 18px;
+  border-top-color: #f59e0b;
+  animation-delay: 0.3s;
+}
+
+.loading-text {
+  font-size: 1.1rem;
+  font-weight: 500;
+  margin: 0;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}

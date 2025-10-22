@@ -15,10 +15,10 @@ const connectDatabase = async () => {
   try {
     console.log('🔗 Connecting to Redis...');
 
-    redisClient = new Redis({
+    // Prepare Redis configuration
+    const redisConfig = {
       host: process.env.REDIS_HOST || 'localhost',
       port: parseInt(process.env.REDIS_PORT) || 6379,
-      password: process.env.REDIS_PASSWORD || undefined,
       db: parseInt(process.env.REDIS_DB) || 0,
       retryDelayOnFailover: 100,
       enableReadyCheck: true,
@@ -26,35 +26,16 @@ const connectDatabase = async () => {
       lazyConnect: true,
       keepAlive: 30000,
       family: 4,
-      keyPrefix: 'anon_msg:',
-      // Privacy-focused configuration
-      scripts: {
-        // Custom Lua scripts for atomic operations without exposing data
-        atomicSetIfNotExists: `
-          local key = KEYS[1]
-          local value = ARGV[1]
-          local ttl = tonumber(ARGV[2])
+      keyPrefix: 'anon_msg:'
+    };
 
-          if redis.call('EXISTS', key) == 0 then
-            redis.call('SET', key, value, 'EX', ttl)
-            return 1
-          else
-            return 0
-          end
-        `,
-        atomicIncrementAndExpire: `
-          local key = KEYS[1]
-          local increment = tonumber(ARGV[1])
-          local ttl = tonumber(ARGV[2])
+    // Add password only if provided
+    if (process.env.REDIS_PASSWORD && process.env.REDIS_PASSWORD.trim() !== '') {
+      redisConfig.password = process.env.REDIS_PASSWORD;
+    }
 
-          local current = redis.call('INCRBY', key, increment)
-          if current == increment then
-            redis.call('EXPIRE', key, ttl)
-          end
-          return current
-        `
-      }
-    });
+    // Create Redis client
+    redisClient = new Redis(redisConfig);
 
     // Redis event listeners
     redisClient.on('connect', () => {

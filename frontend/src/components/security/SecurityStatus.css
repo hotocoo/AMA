@@ -1,0 +1,102 @@
+/**
+ * Security Status Styles
+ * Styles for the security status indicator component
+ */
+
+.security-status {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1000;
+  background: rgba(30, 41, 59, 0.9);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+}
+
+.status-indicators {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(51, 65, 85, 0.3);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.status-indicator.connected .status-dot {
+  background: #10b981;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+}
+
+.status-indicator.disconnected .status-dot {
+  background: #ef4444;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+}
+
+.status-indicator.authenticated .status-dot {
+  background: #2563eb;
+  box-shadow: 0 0 10px rgba(37, 99, 235, 0.5);
+}
+
+.status-indicator.unauthenticated .status-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.5);
+}
+
+.status-indicator.encrypted .status-dot {
+  background: #10b981;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+}
+
+.status-text {
+  color: #cbd5e1;
+  font-size: 0.8rem;
+}
+
+.status-indicator.connected .status-text {
+  color: #f8fafc;
+}
+
+.status-indicator.authenticated .status-text {
+  color: #f8fafc;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .security-status {
+    top: 0.5rem;
+    right: 0.5rem;
+    padding: 0.5rem;
+  }
+
+  .status-indicators {
+    gap: 0.5rem;
+  }
+
+  .status-indicator {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .status-text {
+    font-size: 0.75rem;
+  }
+}

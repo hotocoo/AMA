@@ -49,7 +49,7 @@ class AnonymousMessengerServer {
       await initializeCrypto();
 
       // Connect to database
-      await connectDatabase();
+      const redisClient = await connectDatabase();
 
       // Initialize database services
       const databaseServices = initializeDatabaseServices(redisClient);
@@ -106,7 +106,7 @@ class AnonymousMessengerServer {
     }));
 
     // Custom security middleware
-    this.app.use(setupSecurity);
+    setupSecurity(this.app);
   }
 
   setupMiddleware() {

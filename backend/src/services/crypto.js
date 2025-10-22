@@ -314,3 +314,10 @@ class MessageEncryptionService {
     }
   }
 }
+
+// Export functions and classes
+module.exports = {
+  initializeCrypto,
+  KeyManager,
+  MessageEncryptionService
+};
