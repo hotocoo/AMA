@@ -74,18 +74,39 @@ export const useNeuralInterface = () => {
   }, []);
 
   /**
-   * Thought-to-text conversion
-   */
-  const convertThoughtToText = useCallback(async (thoughts) => {
-    try {
-      // In a real implementation, this would use advanced AI
-      const text = `Converted thoughts: ${JSON.stringify(thoughts)}`;
-      return text;
-    } catch (error) {
-      console.error('Thought-to-text conversion failed:', error);
-      throw error;
-    }
-  }, []);
+    * Thought-to-text conversion (placeholder for neural interface)
+    */
+   const convertThoughtToText = useCallback(async (thoughts) => {
+     try {
+       if (!thoughts || typeof thoughts !== 'object') {
+         throw new Error('Invalid thought data');
+       }
+
+       // Simulate conversion delay
+       await new Promise(resolve => setTimeout(resolve, 800));
+
+       // Simple mapping based on thought keys
+       const thoughtKeys = Object.keys(thoughts);
+       let text = '';
+
+       if (thoughtKeys.includes('greeting')) {
+         text = 'Hello! I\'m thinking about saying hi.';
+       } else if (thoughtKeys.includes('question')) {
+         text = 'I have a question in my mind.';
+       } else if (thoughtKeys.includes('agreement')) {
+         text = 'That sounds good to me.';
+       } else if (thoughtKeys.includes('message')) {
+         text = thoughts.message || 'I want to send a message.';
+       } else {
+         text = `Neural thought converted: ${thoughtKeys.join(', ')}`;
+       }
+
+       return text;
+     } catch (error) {
+       console.error('Thought-to-text conversion failed:', error);
+       throw new Error('Neural conversion unavailable');
+     }
+   }, []);
 
   /**
    * Advanced biometric security

@@ -1,15 +1,12 @@
 /**
  * Message Routes
- * Handles anonymous message operations
+ * Handles anonymous message operations with database integration
  */
 
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
-
-// In-memory storage for demo (use Redis in production)
-const messages = new Map();
-const chats = new Map();
+const { logMessageEvent, logError } = require('../middleware/logging');
 
 // Generate unique IDs
 const generateId = () => crypto.randomBytes(16).toString('hex');
@@ -17,41 +14,43 @@ const generateId = () => crypto.randomBytes(16).toString('hex');
 // Send message
 const sendMessage = async (req, res) => {
   try {
-    const { chatId, content, type = 'text', metadata = {} } = req.body;
+    const { chatId, encryptedMessage, messageType = 'text', metadata = {} } = req.body;
 
-    if (!chatId || !content) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!chatId || !encryptedMessage) {
+      return res.status(400).json({ error: 'Missing required fields: chatId and encryptedMessage' });
+    }
+
+    // Get database services from app
+    const databaseServices = req.app.get('database');
+    if (!databaseServices || !databaseServices.messageStore) {
+      return res.status(500).json({ error: 'Database services not available' });
     }
 
     const messageId = generateId();
-    const message = {
-      id: messageId,
-      chatId,
-      content,
-      type,
-      metadata,
-      timestamp: Date.now(),
-      sessionId: req.sessionId
-    };
 
-    // Store message
-    if (!messages.has(chatId)) {
-      messages.set(chatId, []);
-    }
-    messages.get(chatId).push(message);
+    // Store encrypted message in database
+    await databaseServices.messageStore.storeMessage(messageId, encryptedMessage, chatId, metadata);
 
-    // Store chat info
-    if (!chats.has(chatId)) {
-      chats.set(chatId, { id: chatId, created: Date.now() });
+    // Update session message count
+    if (req.sessionId && databaseServices.sessionManager) {
+      await databaseServices.sessionManager.incrementMessageCount(req.sessionId);
     }
+
+    // Log message event (privacy-preserving)
+    logMessageEvent('message_sent', {
+      id: messageId.substring(0, 8) + '...',
+      chatId: chatId.substring(0, 8) + '...',
+      size: Buffer.byteLength(encryptedMessage, 'utf8'),
+      type: messageType
+    });
 
     res.json({
       success: true,
       messageId,
-      timestamp: message.timestamp
+      timestamp: Date.now()
     });
   } catch (error) {
-    console.error('Send message error:', error);
+    logError(error, { context: 'message_send' });
     res.status(500).json({ error: 'Failed to send message' });
   }
 };
@@ -62,24 +61,22 @@ const getChatMessages = async (req, res) => {
     const { chatId } = req.params;
     const { limit = 50, offset = 0 } = req.query;
 
-    if (!messages.has(chatId)) {
-      return res.json({ messages: [], total: 0 });
+    // Get database services from app
+    const databaseServices = req.app.get('database');
+    if (!databaseServices || !databaseServices.messageStore) {
+      return res.status(500).json({ error: 'Database services not available' });
     }
 
-    const chatMessages = messages.get(chatId);
-    const total = chatMessages.length;
-    const paginatedMessages = chatMessages
-      .slice(-parseInt(limit) - parseInt(offset), -parseInt(offset) || undefined)
-      .reverse();
+    const messages = await databaseServices.messageStore.getChatMessages(chatId, parseInt(limit), parseInt(offset));
 
     res.json({
-      messages: paginatedMessages,
-      total,
+      messages,
+      total: messages.length,
       limit: parseInt(limit),
       offset: parseInt(offset)
     });
   } catch (error) {
-    console.error('Get chat messages error:', error);
+    logError(error, { context: 'get_chat_messages' });
     res.status(500).json({ error: 'Failed to get messages' });
   }
 };
@@ -87,20 +84,22 @@ const getChatMessages = async (req, res) => {
 // Get single message
 const getMessage = async (req, res) => {
   try {
-    const { chatId, messageId } = req.params;
+    const { messageId } = req.params;
 
-    if (!messages.has(chatId)) {
-      return res.status(404).json({ error: 'Chat not found' });
+    // Get database services from app
+    const databaseServices = req.app.get('database');
+    if (!databaseServices || !databaseServices.messageStore) {
+      return res.status(500).json({ error: 'Database services not available' });
     }
 
-    const message = messages.get(chatId).find(m => m.id === messageId);
+    const message = await databaseServices.messageStore.getMessage(messageId);
     if (!message) {
       return res.status(404).json({ error: 'Message not found' });
     }
 
     res.json({ message });
   } catch (error) {
-    console.error('Get message error:', error);
+    logError(error, { context: 'get_message' });
     res.status(500).json({ error: 'Failed to get message' });
   }
 };
@@ -108,23 +107,20 @@ const getMessage = async (req, res) => {
 // Delete message
 const deleteMessage = async (req, res) => {
   try {
-    const { chatId, messageId } = req.params;
+    const { messageId } = req.params;
+    const { chatId } = req.query; // Assuming chatId is passed as query param
 
-    if (!messages.has(chatId)) {
-      return res.status(404).json({ error: 'Chat not found' });
+    // Get database services from app
+    const databaseServices = req.app.get('database');
+    if (!databaseServices || !databaseServices.messageStore) {
+      return res.status(500).json({ error: 'Database services not available' });
     }
 
-    const chatMessages = messages.get(chatId);
-    const index = chatMessages.findIndex(m => m.id === messageId);
+    await databaseServices.messageStore.deleteMessage(messageId, chatId);
 
-    if (index === -1) {
-      return res.status(404).json({ error: 'Message not found' });
-    }
-
-    chatMessages.splice(index, 1);
     res.json({ success: true });
   } catch (error) {
-    console.error('Delete message error:', error);
+    logError(error, { context: 'delete_message' });
     res.status(500).json({ error: 'Failed to delete message' });
   }
 };
@@ -134,13 +130,16 @@ const getChatInfo = async (req, res) => {
   try {
     const { chatId } = req.params;
 
-    if (!chats.has(chatId)) {
-      return res.status(404).json({ error: 'Chat not found' });
-    }
-
-    res.json({ chat: chats.get(chatId) });
+    // For now, return basic chat info; in a full implementation, track chat metadata
+    res.json({
+      chat: {
+        id: chatId,
+        created: Date.now(), // Placeholder; ideally from database
+        messageCount: 0 // Would need to query database
+      }
+    });
   } catch (error) {
-    console.error('Get chat info error:', error);
+    logError(error, { context: 'get_chat_info' });
     res.status(500).json({ error: 'Failed to get chat info' });
   }
 };
@@ -148,15 +147,19 @@ const getChatInfo = async (req, res) => {
 // Get user chats
 const getUserChats = async (req, res) => {
   try {
-    const userChats = Array.from(chats.values()).map(chat => ({
-      id: chat.id,
-      created: chat.created,
-      messageCount: messages.has(chat.id) ? messages.get(chat.id).length : 0
-    }));
+    // Get database services from app
+    const databaseServices = req.app.get('database');
+    if (!databaseServices || !databaseServices.messageStore) {
+      return res.status(500).json({ error: 'Database services not available' });
+    }
 
-    res.json({ chats: userChats });
+    // In a full implementation, list all unique chatIds from messageStore
+    // For now, return empty array as placeholder
+    const chats = [];
+
+    res.json({ chats });
   } catch (error) {
-    console.error('Get user chats error:', error);
+    logError(error, { context: 'get_user_chats' });
     res.status(500).json({ error: 'Failed to get chats' });
   }
 };

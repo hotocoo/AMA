@@ -24,44 +24,29 @@ const Sidebar = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState('chats');
   const [chats, setChats] = useState([]);
 
-  // Mock chat data (in production, this would come from API)
-  const mockChats = [
-    {
-      id: 'chat_001',
-      type: 'individual',
-      name: 'Anonymous User',
-      lastMessage: 'Hey, how are you?',
-      lastMessageTime: Date.now() - 300000, // 5 minutes ago
-      unreadCount: 2,
-      encrypted: true,
-      anonymous: true,
-    },
-    {
-      id: 'chat_002',
-      type: 'group',
-      name: 'Privacy Enthusiasts',
-      lastMessage: 'Check out this new encryption method!',
-      lastMessageTime: Date.now() - 3600000, // 1 hour ago
-      unreadCount: 0,
-      encrypted: true,
-      anonymous: true,
-      participantCount: 8,
-    },
-    {
-      id: 'chat_003',
-      type: 'individual',
-      name: 'Security Expert',
-      lastMessage: 'The new protocol looks solid',
-      lastMessageTime: Date.now() - 7200000, // 2 hours ago
-      unreadCount: 1,
-      encrypted: true,
-      anonymous: true,
-    },
-  ];
-
+  // Fetch chats from API or use WebSocket data
   useEffect(() => {
-    setChats(mockChats);
-  }, []);
+    // In production, this would fetch from the backend API
+    // For now, use WebSocket messages to simulate chats
+    const fetchChats = async () => {
+      try {
+        // Simulate API call
+        const response = await fetch('/api/chats'); // Placeholder API endpoint
+        if (response.ok) {
+          const data = await response.json();
+          setChats(data.chats || []);
+        } else {
+          // Fallback to empty array or handle error
+          setChats([]);
+        }
+      } catch (error) {
+        console.error('Failed to fetch chats:', error);
+        setChats([]);
+      }
+    };
+
+    fetchChats();
+  }, [messages]);
 
   /**
    * Filter chats based on search query

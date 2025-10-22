@@ -1,22 +1,12 @@
 /**
  * File Routes
- * Handles anonymous file operations
+ * Handles anonymous file operations with database integration
  */
 
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
-
-// In-memory storage for demo (use database in production)
-const files = new Map();
-
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+const { logMessageEvent, logError } = require('../middleware/logging');
 
 // Generate unique IDs
 const generateId = () => crypto.randomBytes(16).toString('hex');
@@ -26,33 +16,45 @@ const uploadFile = async (req, res) => {
   try {
     // In a real implementation, you'd use multer or similar for file handling
     // For this demo, we'll simulate file upload
-    const { filename, content, type, size } = req.body;
+    const { originalName, encryptedName, size, type, hash } = req.body;
 
-    if (!filename || !content || !type) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!originalName || !encryptedName || !type) {
+      return res.status(400).json({ error: 'Missing required fields: originalName, encryptedName, type' });
+    }
+
+    // Get database services from app
+    const databaseServices = req.app.get('database');
+    if (!databaseServices || !databaseServices.fileStore) {
+      return res.status(500).json({ error: 'Database services not available' });
     }
 
     const fileId = generateId();
     const fileInfo = {
-      id: fileId,
-      filename,
+      originalName,
+      encryptedName,
+      size: size || 0,
       type,
-      size: size || content.length,
-      uploaded: Date.now(),
-      sessionId: req.sessionId
+      hash: hash || crypto.createHash('sha256').update(encryptedName).digest('hex')
     };
 
-    // Store file info
-    files.set(fileId, fileInfo);
+    // Store file metadata in database
+    await databaseServices.fileStore.storeFile(fileId, fileInfo);
+
+    // Log file upload event
+    logMessageEvent('file_uploaded', {
+      id: fileId.substring(0, 8) + '...',
+      size: fileInfo.size,
+      type: fileInfo.type
+    });
 
     res.json({
       success: true,
       fileId,
-      filename,
+      filename: originalName,
       size: fileInfo.size
     });
   } catch (error) {
-    console.error('Upload file error:', error);
+    logError(error, { context: 'file_upload' });
     res.status(500).json({ error: 'Failed to upload file' });
   }
 };
@@ -62,14 +64,20 @@ const getFile = async (req, res) => {
   try {
     const { fileId } = req.params;
 
-    if (!files.has(fileId)) {
+    // Get database services from app
+    const databaseServices = req.app.get('database');
+    if (!databaseServices || !databaseServices.fileStore) {
+      return res.status(500).json({ error: 'Database services not available' });
+    }
+
+    const fileInfo = await databaseServices.fileStore.getFile(fileId);
+    if (!fileInfo) {
       return res.status(404).json({ error: 'File not found' });
     }
 
-    const fileInfo = files.get(fileId);
     res.json({ file: fileInfo });
   } catch (error) {
-    console.error('Get file error:', error);
+    logError(error, { context: 'get_file' });
     res.status(500).json({ error: 'Failed to get file' });
   }
 };
@@ -79,23 +87,29 @@ const downloadFile = async (req, res) => {
   try {
     const { fileId } = req.params;
 
-    if (!files.has(fileId)) {
+    // Get database services from app
+    const databaseServices = req.app.get('database');
+    if (!databaseServices || !databaseServices.fileStore) {
+      return res.status(500).json({ error: 'Database services not available' });
+    }
+
+    const fileInfo = await databaseServices.fileStore.getFile(fileId);
+    if (!fileInfo) {
       return res.status(404).json({ error: 'File not found' });
     }
 
-    const fileInfo = files.get(fileId);
-
-    // In a real implementation, you'd serve the actual file
+    // In a real implementation, you'd serve the actual encrypted file
     // For this demo, we'll return file info
     res.json({
       fileId,
-      filename: fileInfo.filename,
+      filename: fileInfo.originalName,
       type: fileInfo.type,
       size: fileInfo.size,
-      note: 'File download simulation - in production this would serve the actual file'
+      hash: fileInfo.hash,
+      note: 'File download simulation - in production this would serve the actual encrypted file'
     });
   } catch (error) {
-    console.error('Download file error:', error);
+    logError(error, { context: 'download_file' });
     res.status(500).json({ error: 'Failed to download file' });
   }
 };
@@ -105,14 +119,17 @@ const deleteFile = async (req, res) => {
   try {
     const { fileId } = req.params;
 
-    if (!files.has(fileId)) {
-      return res.status(404).json({ error: 'File not found' });
+    // Get database services from app
+    const databaseServices = req.app.get('database');
+    if (!databaseServices || !databaseServices.fileStore) {
+      return res.status(500).json({ error: 'Database services not available' });
     }
 
-    files.delete(fileId);
+    await databaseServices.fileStore.deleteFile(fileId);
+
     res.json({ success: true });
   } catch (error) {
-    console.error('Delete file error:', error);
+    logError(error, { context: 'delete_file' });
     res.status(500).json({ error: 'Failed to delete file' });
   }
 };

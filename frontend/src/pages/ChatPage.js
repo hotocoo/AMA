@@ -39,21 +39,23 @@ const ChatPage = () => {
   const inputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
-  // Mock current chat data
-  const mockCurrentChat = {
-    id: 'chat_001',
-    name: 'Anonymous User',
-    type: 'individual',
-    participants: ['user_1', 'user_2'],
-    created: Date.now() - 86400000, // 1 day ago
-    encrypted: true,
-    anonymous: true,
-  };
-
+  // Get current chat from props or state management
+  // In a full app, this would come from routing or state
   useEffect(() => {
-    setCurrentChat(mockCurrentChat);
-    joinChat(mockCurrentChat.id);
-  }, [joinChat]);
+    // For now, initialize with a default chat or fetch from API
+    const defaultChat = {
+      id: 'default_chat',
+      name: 'Anonymous User',
+      type: 'individual',
+      participants: [sessionId],
+      created: Date.now(),
+      encrypted: true,
+      anonymous: true,
+    };
+
+    setCurrentChat(defaultChat);
+    joinChat(defaultChat.id);
+  }, [joinChat, sessionId]);
 
   /**
    * Initialize crypto for this chat
