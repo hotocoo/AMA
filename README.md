@@ -56,30 +56,30 @@
 #### **🛠️ Installation & Setup**
 
 1. **Clone and Setup**
-   ```bash
-   git clone <your-github-repo-url>
-   cd anonymous-messenger
-   ```
+    ```bash
+    git clone <your-github-repo-url>
+    cd <repo-directory>
+    ```
 
 2. **Install Backend Dependencies**
-   ```bash
-   cd backend
-   npm install
-   ```
+    ```bash
+    cd backend
+    npm install
+    ```
 
 3. **Install Frontend Dependencies**
-   ```bash
-   cd ../frontend
-   npm install
-   ```
+    ```bash
+    cd frontend
+    npm install
+    ```
 
 4. **Configure Environment**
-   ```bash
-   # Backend configuration
-   cd ../backend
-   cp .env.example .env
-   # Edit .env with your settings
-   ```
+    ```bash
+    # Backend configuration
+    cd backend
+    cp .env.example .env
+    # Edit .env with your settings
+    ```
 
 5. **Start Redis Database**
    ```bash
@@ -87,18 +87,18 @@
    ```
 
 6. **Start the Backend Server**
-   ```bash
-   cd backend
-   npm run dev
-   ```
-   ✅ **You should see**: "Anonymous Messenger Server running on port 3001"
+    ```bash
+    cd backend
+    npm run dev
+    ```
+    ✅ **You should see**: "Anonymous Messenger Server running on port 3001"
 
 7. **Start the Frontend Application**
-   ```bash
-   cd ../frontend
-   npm start
-   ```
-   ✅ **You should see**: "React app running on http://localhost:3000"
+    ```bash
+    cd frontend
+    npm start
+    ```
+    ✅ **You should see**: "React app running on http://localhost:3000"
 
 8. **🎉 Open Your Browser**
    ```
@@ -374,7 +374,7 @@ cd backend
 npm test
 
 # Run frontend tests
-cd ../frontend
+cd frontend
 npm test
 
 # Security testing
