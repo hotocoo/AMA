@@ -37,6 +37,9 @@ const ChatInterface = ({ onBack }) => {
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showReels, setShowReels] = useState(false);
+  const [isRecordingReel, setIsRecordingReel] = useState(false);
+  const [reelDuration, setReelDuration] = useState(0);
 
   const emojis = ['😀', '😂', '😍', '🤔', '👍', '❤️', '🔥', '🎉', '👏', '💯'];
   const gifs = [
@@ -155,6 +158,37 @@ const ChatInterface = ({ onBack }) => {
     // Show a random GIF from the collection
     const randomGif = gifs[Math.floor(Math.random() * gifs.length)];
     sendGif(randomGif);
+  };
+
+  const handleReelButton = () => {
+    setIsRecordingReel(true);
+    setReelDuration(0);
+
+    // Simulate reel recording (15 seconds max)
+    const interval = setInterval(() => {
+      setReelDuration(prev => {
+        if (prev >= 15) {
+          clearInterval(interval);
+          setIsRecordingReel(false);
+
+          // Create reel message
+          const reelMessage = {
+            id: messages.length + 1,
+            text: "🎬 Shared a reel (15s)",
+            sender: "me",
+            timestamp: new Date(),
+            type: "reel",
+            reactions: {},
+            reelUrl: "https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_1mb.mp4",
+            duration: "15s",
+            thumbnail: "https://picsum.photos/200/300?random=" + Date.now()
+          };
+          setMessages([...messages, reelMessage]);
+          return 15;
+        }
+        return prev + 1;
+      });
+    }, 1000);
   };
 
   return (
@@ -360,6 +394,21 @@ const ChatInterface = ({ onBack }) => {
             >
               ⚙️
             </button>
+            <button
+              onClick={() => setShowReels(true)}
+              style={{
+                background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.2), rgba(168, 85, 247, 0.2))',
+                border: '1px solid rgba(236, 72, 153, 0.3)',
+                borderRadius: '0.5rem',
+                padding: '0.5rem',
+                color: '#ec4899',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+              title="Reels"
+            >
+              🎬
+            </button>
           </div>
         </div>
 
@@ -481,6 +530,68 @@ const ChatInterface = ({ onBack }) => {
                         boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
                       }}
                     />
+                  </div>
+                )}
+
+                {message.type === 'reel' && (
+                  <div style={{
+                    marginBottom: '0.5rem',
+                    position: 'relative',
+                    maxWidth: '200px',
+                    borderRadius: '0.5rem',
+                    overflow: 'hidden',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+                  }}>
+                    <img
+                      src={message.thumbnail}
+                      alt="Reel thumbnail"
+                      style={{
+                        width: '100%',
+                        height: '300px',
+                        objectFit: 'cover'
+                      }}
+                    />
+                    <div style={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      background: 'rgba(0,0,0,0.7)',
+                      borderRadius: '50%',
+                      width: '60px',
+                      height: '60px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'white',
+                      fontSize: '1.5rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = 'rgba(236, 72, 153, 0.9)';
+                      e.target.style.transform = 'translate(-50%, -50%) scale(1.1)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = 'rgba(0,0,0,0.7)';
+                      e.target.style.transform = 'translate(-50%, -50%) scale(1)';
+                    }}
+                    >
+                      ▶️
+                    </div>
+                    <div style={{
+                      position: 'absolute',
+                      bottom: '0.5rem',
+                      right: '0.5rem',
+                      background: 'rgba(236, 72, 153, 0.9)',
+                      color: 'white',
+                      padding: '0.25rem 0.5rem',
+                      borderRadius: '0.25rem',
+                      fontSize: '0.8rem',
+                      fontWeight: 'bold'
+                    }}>
+                      {message.duration}
+                    </div>
                   </div>
                 )}
 
@@ -702,6 +813,28 @@ const ChatInterface = ({ onBack }) => {
             {isRecording ? '⏹️' : '🎤'}
           </button>
 
+          {/* Reel Button */}
+          <button
+            onClick={handleReelButton}
+            disabled={isRecordingReel}
+            style={{
+              background: isRecordingReel
+                ? 'linear-gradient(135deg, #ec4899, #db2777)'
+                : 'linear-gradient(135deg, rgba(236, 72, 153, 0.2), rgba(168, 85, 247, 0.2))',
+              border: `1px solid ${isRecordingReel ? 'rgba(236, 72, 153, 0.3)' : 'rgba(236, 72, 153, 0.3)'}`,
+              borderRadius: '0.5rem',
+              padding: '0.75rem',
+              color: isRecordingReel ? '#fce7f3' : '#ec4899',
+              cursor: isRecordingReel ? 'not-allowed' : 'pointer',
+              fontSize: '1.2rem',
+              transition: 'all 0.2s ease',
+              animation: isRecordingReel ? 'pulse 1s infinite' : 'none'
+            }}
+            title="Create Reel"
+          >
+            {isRecordingReel ? '⏹️' : '🎬'}
+          </button>
+
           {/* Text Input */}
           <div style={{
             flex: 1,
@@ -846,6 +979,221 @@ const ChatInterface = ({ onBack }) => {
             >
               Close
             </button>
+          </div>
+        )}
+
+        {/* Reel Recording Interface */}
+        {isRecordingReel && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.9)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000
+          }}>
+            <div style={{
+              background: 'rgba(236, 72, 153, 0.1)',
+              border: '2px solid #ec4899',
+              borderRadius: '2rem',
+              padding: '3rem',
+              textAlign: 'center',
+              boxShadow: '0 0 50px rgba(236, 72, 153, 0.5)',
+              animation: 'pulse 2s infinite'
+            }}>
+              <div style={{
+                width: '80px',
+                height: '80px',
+                border: '4px solid #ec4899',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 2rem',
+                background: 'rgba(236, 72, 153, 0.2)'
+              }}>
+                <span style={{ fontSize: '2rem', color: '#ec4899' }}>🎬</span>
+              </div>
+              <h2 style={{ color: '#ec4899', margin: '0 0 1rem 0', fontSize: '2rem' }}>
+                Recording Reel...
+              </h2>
+              <p style={{ color: '#f472b6', fontSize: '1.2rem', margin: '0 0 2rem 0' }}>
+                {reelDuration}s / 15s
+              </p>
+              <div style={{
+                width: '200px',
+                height: '4px',
+                background: 'rgba(236, 72, 153, 0.3)',
+                borderRadius: '2px',
+                margin: '0 auto 2rem',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  width: `${(reelDuration / 15) * 100}%`,
+                  height: '100%',
+                  background: 'linear-gradient(90deg, #ec4899, #f472b6)',
+                  borderRadius: '2px',
+                  transition: 'width 0.1s ease'
+                }}></div>
+              </div>
+              <button
+                onClick={() => {
+                  setIsRecordingReel(false);
+                  setReelDuration(0);
+                }}
+                style={{
+                  background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '1rem',
+                  padding: '1rem 2rem',
+                  fontSize: '1.1rem',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 15px rgba(239, 68, 68, 0.4)'
+                }}
+              >
+                ⏹️ Stop Recording
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Reels Discovery Interface */}
+        {showReels && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.9)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1500
+          }}>
+            <div style={{
+              width: '90%',
+              height: '90%',
+              background: 'rgba(30, 41, 59, 0.95)',
+              borderRadius: '1rem',
+              padding: '2rem',
+              position: 'relative',
+              border: '1px solid rgba(236, 72, 153, 0.3)',
+              boxShadow: '0 0 50px rgba(236, 72, 153, 0.2)'
+            }}>
+              <button
+                onClick={() => setShowReels(false)}
+                style={{
+                  position: 'absolute',
+                  top: '1rem',
+                  right: '1rem',
+                  background: 'rgba(239, 68, 68, 0.2)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  borderRadius: '50%',
+                  width: '40px',
+                  height: '40px',
+                  color: '#ef4444',
+                  cursor: 'pointer',
+                  fontSize: '1.2rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                ✕
+              </button>
+
+              <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+                <h2 style={{ color: '#ec4899', fontSize: '2rem', margin: '0 0 0.5rem 0' }}>
+                  🎬 Reel Discovery
+                </h2>
+                <p style={{ color: '#94a3b8', fontSize: '1.1rem', margin: 0 }}>
+                  Discover and watch amazing reels from the community
+                </p>
+              </div>
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+                gap: '1.5rem',
+                height: 'calc(100% - 100px)',
+                overflowY: 'auto'
+              }}>
+                {[1, 2, 3, 4, 5, 6].map(reel => (
+                  <div
+                    key={reel}
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.1), rgba(168, 85, 247, 0.1))',
+                      border: '1px solid rgba(236, 72, 153, 0.2)',
+                      borderRadius: '1rem',
+                      padding: '1rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.transform = 'scale(1.02)';
+                      e.target.style.border = '1px solid rgba(236, 72, 153, 0.5)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.transform = 'scale(1)';
+                      e.target.style.border = '1px solid rgba(236, 72, 153, 0.2)';
+                    }}
+                  >
+                    <div style={{
+                      width: '100%',
+                      height: '200px',
+                      background: `linear-gradient(135deg, ${reel % 2 === 0 ? '#ec4899' : '#8b5cf6'}, ${reel % 3 === 0 ? '#f472b6' : '#a855f7'})`,
+                      borderRadius: '0.5rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '3rem',
+                      marginBottom: '1rem',
+                      position: 'relative',
+                      overflow: 'hidden'
+                    }}>
+                      🎬
+                      <div style={{
+                        position: 'absolute',
+                        bottom: '0.5rem',
+                        right: '0.5rem',
+                        background: 'rgba(0,0,0,0.7)',
+                        color: 'white',
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '0.25rem',
+                        fontSize: '0.8rem'
+                      }}>
+                        15s
+                      </div>
+                    </div>
+                    <h3 style={{ color: '#f8fafc', margin: '0 0 0.5rem 0', fontSize: '1.1rem' }}>
+                      Amazing Reel #{reel}
+                    </h3>
+                    <p style={{ color: '#94a3b8', margin: '0 0 1rem 0', fontSize: '0.9rem' }}>
+                      Creative content from the community
+                    </p>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '1rem',
+                      fontSize: '0.9rem',
+                      color: '#64748b'
+                    }}>
+                      <span>❤️ 1.2k</span>
+                      <span>💬 89</span>
+                      <span>🔗 Share</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
