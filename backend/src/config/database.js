@@ -170,8 +170,12 @@ class AnonymousSessionManager {
    * Increment message count for session
    */
   async incrementMessageCount(sessionId) {
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      return null;
+    }
     return await this.updateSession(sessionId, {
-      messageCount: (await this.getSession(sessionId)).messageCount + 1
+      messageCount: (session.messageCount || 0) + 1
     });
   }
 
@@ -222,17 +226,24 @@ class MessageStore {
     const messageKey = `${this.messagePrefix}${messageId}`;
     const chatKey = `${this.chatPrefix}${chatId}`;
 
+    // Support disappearing messages: use provided TTL or default
+    const ttl = (metadata.ttl && Number.isInteger(metadata.ttl) && metadata.ttl > 0)
+      ? metadata.ttl
+      : this.defaultMessageTTL;
+
     const messageData = {
       id: messageId,
       chatId,
       encrypted: encryptedMessage,
+      messageType: metadata.messageType || 'text',
       timestamp: Date.now(),
       size: Buffer.byteLength(encryptedMessage, 'utf8'),
+      expiresIn: ttl,
       // No personal metadata stored
     };
 
     // Store message with TTL
-    await this.redis.setex(messageKey, this.defaultMessageTTL, JSON.stringify(messageData));
+    await this.redis.setex(messageKey, ttl, JSON.stringify(messageData));
 
     // Add message to chat index
     await this.redis.sadd(`${chatKey}:messages`, messageId);
@@ -292,6 +303,29 @@ class MessageStore {
 
     await this.redis.del(messageKey);
     await this.redis.srem(`${chatKey}:messages`, messageId);
+  }
+
+  /**
+   * Delete all messages in a chat
+   */
+  async deleteChatMessages(chatId) {
+    const chatKey = `${this.chatPrefix}${chatId}`;
+    const messageIds = await this.redis.smembers(`${chatKey}:messages`);
+
+    if (messageIds.length === 0) {
+      return 0;
+    }
+
+    // Delete all message keys
+    const messageKeys = messageIds.map(id => `${this.messagePrefix}${id}`);
+    if (messageKeys.length > 0) {
+      await this.redis.del(...messageKeys);
+    }
+
+    // Remove chat message index
+    await this.redis.del(`${chatKey}:messages`);
+
+    return messageIds.length;
   }
 
   /**

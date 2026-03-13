@@ -129,15 +129,13 @@ class AnonymousMessageRouter {
       /ip[_\-]?address/i,
       /user[_\-]?agent/i,
       /device[_\-]?id/i,
-      /location/i,
+      /\blocation\b/i,
       /coordinate/i,
       /fingerprint/i,
       /session[_\-]?id/i,
       /user[_\-]?id/i,
-      /email/i,
-      /phone/i,
-      /name/i,
-      /timestamp/i, // Actual timestamps might be identifying
+      /\bemail\b/i,
+      /\bphone\b/i,
     ];
 
     metadataPatterns.forEach(pattern => {

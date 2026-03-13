@@ -36,16 +36,20 @@ const setupRoutes = (app) => {
   app.use('/api', createRateLimit(900000, 1000, 'API rate limit exceeded'));
 
   // Session management routes
-  app.post('/api/session/create', sessionController.createSession);
+  app.post('/api/session/create', createRateLimit(900000, 20, 'Session creation rate limit exceeded'), sessionController.createSession);
   app.get('/api/session/:sessionId', sessionController.getSession);
   app.put('/api/session/:sessionId', sessionController.updateSession);
   app.delete('/api/session/:sessionId', sessionController.deleteSession);
+  app.get('/api/sessions/stats', sessionController.getSessionStats);
+  app.post('/api/keys/exchange', createRateLimit(60000, 10, 'Key exchange rate limit exceeded'), sessionController.exchangeKeys);
 
   // Message routes
   app.post('/api/messages/send', messageController.sendMessage);
   app.get('/api/messages/:chatId', messageController.getChatMessages);
+  app.get('/api/messages/:chatId/search', messageController.searchMessages);
   app.get('/api/messages/:chatId/:messageId', messageController.getMessage);
   app.delete('/api/messages/:chatId/:messageId', messageController.deleteMessage);
+  app.delete('/api/messages/:chatId', messageController.deleteChatMessages);
 
   // File routes
   app.post('/api/files/upload', fileController.uploadFile);
@@ -58,14 +62,13 @@ const setupRoutes = (app) => {
   app.get('/api/chats/:chatId', messageController.getChatInfo);
   app.get('/api/chats', messageController.getUserChats);
 
-  // WebRTC signaling routes (for fallback)
-  app.post('/api/webrtc/signal', createRateLimit(60000, 100, 'WebRTC signaling rate limit exceeded'));
-
-  // Key exchange for end-to-end encryption
-  app.post('/api/keys/exchange', createRateLimit(60000, 10, 'Key exchange rate limit exceeded'), sessionController.exchangeKeys);
+  // WebRTC signaling routes (for fallback - handler to be implemented)
+  app.post('/api/webrtc/signal', createRateLimit(60000, 100, 'WebRTC signaling rate limit exceeded'), (req, res) => {
+    res.json({ success: true, timestamp: Date.now() });
+  });
 
   // Statistics (privacy-preserving)
-  app.get('/api/stats', createRateLimit(3600000, 10, 'Statistics rate limit exceeded'));
+  app.get('/api/stats', createRateLimit(3600000, 10, 'Statistics rate limit exceeded'), healthController.getDetailedStats);
 
   // Error handling middleware
   app.use((error, req, res, next) => {

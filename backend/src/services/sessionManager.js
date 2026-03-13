@@ -98,7 +98,7 @@ class AdvancedAnonymousSessionManager {
       sessionData.language || 'unknown',
       sessionData.timezone || 'unknown',
       sessionData.screenResolution || 'unknown',
-      Date.now().toString().substring(-6), // Partial timestamp
+      Date.now().toString().slice(-6), // Partial timestamp
     ];
 
     // Hash components without storing originals

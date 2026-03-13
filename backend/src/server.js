@@ -20,7 +20,7 @@ const { setupLogging } = require('./middleware/logging');
 const { setupRoutes } = require('./routes');
 const { setupWebSocket } = require('./services/websocket');
 const { initializeCrypto } = require('./services/crypto');
-const { connectDatabase, initializeDatabaseServices } = require('./config/database');
+const { connectDatabase, closeDatabase, initializeDatabaseServices } = require('./config/database');
 
 class AnonymousMessengerServer {
   constructor() {
@@ -199,7 +199,7 @@ class AnonymousMessengerServer {
       });
 
       // Close database connections
-      // await closeDatabase();
+      await closeDatabase();
 
       console.log('✅ Graceful shutdown completed.');
       process.exit(0);

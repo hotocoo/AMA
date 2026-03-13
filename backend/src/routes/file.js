@@ -6,10 +6,26 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const fs = require('fs').promises;
+const path = require('path');
 const { logMessageEvent, logError } = require('../middleware/logging');
 
 // Generate unique IDs
 const generateId = () => crypto.randomBytes(16).toString('hex');
+
+// Uploads directory path
+const UPLOADS_DIR = path.join(__dirname, '../../uploads');
+
+// Ensure uploads directory exists
+const ensureUploadsDir = async () => {
+  try {
+    await fs.mkdir(UPLOADS_DIR, { recursive: true });
+  } catch (error) {
+    if (error.code !== 'EEXIST') {
+      throw error;
+    }
+  }
+};
 
 // Upload file
 const uploadFile = async (req, res) => {
@@ -37,10 +53,11 @@ const uploadFile = async (req, res) => {
       hash: hash || crypto.createHash('sha256').update(encryptedData).digest('hex')
     };
 
+    // Ensure uploads directory exists before writing
+    await ensureUploadsDir();
+
     // Store encrypted file data in uploads directory
-    const fs = require('fs').promises;
-    const path = require('path');
-    const filePath = path.join(__dirname, '../uploads', fileInfo.encryptedName);
+    const filePath = path.join(UPLOADS_DIR, fileInfo.encryptedName);
     await fs.writeFile(filePath, encryptedData, 'base64');
 
     // Store file metadata in database
@@ -105,9 +122,7 @@ const downloadFile = async (req, res) => {
     }
 
     // Serve the actual encrypted file
-    const fs = require('fs').promises;
-    const path = require('path');
-    const filePath = path.join(__dirname, '../uploads', fileInfo.encryptedName);
+    const filePath = path.join(UPLOADS_DIR, fileInfo.encryptedName);
 
     try {
       const fileData = await fs.readFile(filePath, 'base64');
@@ -139,7 +154,22 @@ const deleteFile = async (req, res) => {
       return res.status(500).json({ error: 'Database services not available' });
     }
 
+    // Get file info before deletion to remove from disk
+    const fileInfo = await databaseServices.fileStore.getFile(fileId);
+
+    // Delete from database
     await databaseServices.fileStore.deleteFile(fileId);
+
+    // Delete from disk if found
+    if (fileInfo?.encryptedName) {
+      const filePath = path.join(UPLOADS_DIR, fileInfo.encryptedName);
+      try {
+        await fs.unlink(filePath);
+      } catch (unlinkError) {
+        // File may not exist on disk; log but don't fail the request
+        logError(unlinkError, { context: 'delete_file_disk', fileId: fileId.substring(0, 8) + '...' });
+      }
+    }
 
     res.json({ success: true });
   } catch (error) {
