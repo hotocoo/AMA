@@ -14,7 +14,7 @@ const generateId = () => crypto.randomBytes(16).toString('hex');
 // Send message
 const sendMessage = async (req, res) => {
   try {
-    const { chatId, encryptedMessage, messageType = 'text', metadata = {} } = req.body;
+    const { chatId, encryptedMessage, messageType = 'text', metadata = {}, expiresIn } = req.body;
 
     if (!chatId || !encryptedMessage) {
       return res.status(400).json({ error: 'Missing required fields: chatId and encryptedMessage' });
@@ -28,8 +28,11 @@ const sendMessage = async (req, res) => {
 
     const messageId = generateId();
 
+    // Support disappearing messages via custom TTL (seconds)
+    const ttl = expiresIn && Number.isInteger(expiresIn) && expiresIn > 0 ? expiresIn : undefined;
+
     // Store encrypted message in database
-    await databaseServices.messageStore.storeMessage(messageId, encryptedMessage, chatId, metadata);
+    await databaseServices.messageStore.storeMessage(messageId, encryptedMessage, chatId, { ...metadata, ttl });
 
     // Update session message count
     if (req.anonymousSession?.id && databaseServices.sessionManager) {
@@ -41,13 +44,15 @@ const sendMessage = async (req, res) => {
       id: messageId.substring(0, 8) + '...',
       chatId: chatId.substring(0, 8) + '...',
       size: Buffer.byteLength(encryptedMessage, 'utf8'),
-      type: messageType
+      type: messageType,
+      disappearing: !!ttl
     });
 
     res.json({
       success: true,
       messageId,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      expiresIn: ttl || null
     });
   } catch (error) {
     logError(error, { context: 'message_send' });
@@ -107,8 +112,11 @@ const getMessage = async (req, res) => {
 // Delete message
 const deleteMessage = async (req, res) => {
   try {
-    const { messageId } = req.params;
-    const { chatId } = req.query; // Assuming chatId is passed as query param
+    const { messageId, chatId } = req.params;
+
+    if (!chatId) {
+      return res.status(400).json({ error: 'Chat ID required' });
+    }
 
     // Get database services from app
     const databaseServices = req.app.get('database');
@@ -190,6 +198,73 @@ const getUserChats = async (req, res) => {
   }
 };
 
+// Search messages by size range (since content is encrypted, search is limited to metadata)
+const searchMessages = async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const { minSize, maxSize, messageType, limit = 50, offset = 0 } = req.query;
+
+    const databaseServices = req.app.get('database');
+    if (!databaseServices || !databaseServices.messageStore) {
+      return res.status(500).json({ error: 'Database services not available' });
+    }
+
+    const allMessages = await databaseServices.messageStore.getChatMessages(
+      chatId,
+      1000, // Fetch larger set to filter from
+      0
+    );
+
+    let filtered = allMessages;
+
+    if (minSize !== undefined) {
+      filtered = filtered.filter(m => m.size >= parseInt(minSize));
+    }
+    if (maxSize !== undefined) {
+      filtered = filtered.filter(m => m.size <= parseInt(maxSize));
+    }
+    if (messageType) {
+      filtered = filtered.filter(m => m.messageType === messageType);
+    }
+
+    const paginated = filtered.slice(parseInt(offset), parseInt(offset) + parseInt(limit));
+
+    res.json({
+      messages: paginated,
+      total: filtered.length,
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+  } catch (error) {
+    logError(error, { context: 'search_messages' });
+    res.status(500).json({ error: 'Failed to search messages' });
+  }
+};
+
+// Delete all messages in a chat
+const deleteChatMessages = async (req, res) => {
+  try {
+    const { chatId } = req.params;
+
+    const databaseServices = req.app.get('database');
+    if (!databaseServices || !databaseServices.messageStore) {
+      return res.status(500).json({ error: 'Database services not available' });
+    }
+
+    const count = await databaseServices.messageStore.deleteChatMessages(chatId);
+
+    logMessageEvent('chat_messages_deleted', {
+      chatId: chatId.substring(0, 8) + '...',
+      count
+    });
+
+    res.json({ success: true, deletedCount: count });
+  } catch (error) {
+    logError(error, { context: 'delete_chat_messages' });
+    res.status(500).json({ error: 'Failed to delete chat messages' });
+  }
+};
+
 module.exports = {
   sendMessage,
   getChatMessages,
@@ -197,5 +272,7 @@ module.exports = {
   deleteMessage,
   getChatInfo,
   getUserChats,
-  createChat
+  createChat,
+  searchMessages,
+  deleteChatMessages
 };

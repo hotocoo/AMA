@@ -38,6 +38,7 @@ class WebSocketManager {
       const clientInfo = {
         id: connectionId,
         connectedAt: Date.now(),
+        lastActivity: Date.now(),
         socketId: socket.id,
         // No IP address or personal data stored
       };
@@ -124,6 +125,15 @@ class WebSocketManager {
       this.handlePing(socket, connectionId);
     });
 
+    // Join/leave chat rooms
+    socket.on('join_chat', (data) => {
+      this.handleJoinChat(socket, connectionId, data);
+    });
+
+    socket.on('leave_chat', (data) => {
+      this.handleLeaveChat(socket, connectionId, data);
+    });
+
     // Disconnection
     socket.on('disconnect', () => {
       this.handleDisconnection(socket, connectionId);
@@ -190,6 +200,9 @@ class WebSocketManager {
         socket.emit('error', { message: 'Session not registered' });
         return;
       }
+
+      // Update last activity timestamp
+      connection.lastActivity = Date.now();
 
       const messageId = uuidv4();
 
@@ -354,6 +367,12 @@ class WebSocketManager {
    * Handle ping/heartbeat
    */
   handlePing(socket, connectionId) {
+    // Update last activity
+    const connection = this.connections.get(socket.id);
+    if (connection) {
+      connection.lastActivity = Date.now();
+    }
+
     // Update connection ping in database
     this.db.webSocketManager.updateConnectionPing(connectionId);
 
@@ -361,6 +380,34 @@ class WebSocketManager {
       timestamp: Date.now(),
       connectionId
     });
+  }
+
+  /**
+   * Handle join chat room
+   */
+  handleJoinChat(socket, connectionId, data) {
+    const { chatId } = data || {};
+    if (!chatId) {
+      socket.emit('error', { message: 'chatId required to join' });
+      return;
+    }
+
+    this.joinChat(socket, chatId);
+    socket.emit('joined_chat', { chatId, timestamp: Date.now() });
+  }
+
+  /**
+   * Handle leave chat room
+   */
+  handleLeaveChat(socket, connectionId, data) {
+    const { chatId } = data || {};
+    if (!chatId) {
+      socket.emit('error', { message: 'chatId required to leave' });
+      return;
+    }
+
+    this.leaveChat(socket, chatId);
+    socket.emit('left_chat', { chatId, timestamp: Date.now() });
   }
 
   /**
@@ -472,13 +519,14 @@ class WebSocketManager {
   async cleanupStaleConnections() {
     try {
       const now = Date.now();
-      const staleThreshold = 10 * 60 * 1000; // 10 minutes
+      const staleThreshold = 10 * 60 * 1000; // 10 minutes of inactivity
 
       // Clean up in-memory connections
       for (const [socketId, connection] of this.connections.entries()) {
-        const age = now - connection.connectedAt;
+        const lastSeen = connection.lastActivity || connection.connectedAt;
+        const idleTime = now - lastSeen;
 
-        if (age > staleThreshold) {
+        if (idleTime > staleThreshold) {
           this.connections.delete(socketId);
 
           // Also clean up database
@@ -490,7 +538,8 @@ class WebSocketManager {
           }
 
           logWebSocketEvent('stale_connection_cleaned', {
-            connectionId: connection.id
+            connectionId: connection.id,
+            idleMs: idleTime
           });
         }
       }
