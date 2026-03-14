@@ -6,6 +6,10 @@
 const crypto = require('crypto');
 const { logAuthEvent, logError } = require('../middleware/logging');
 
+// Maximum length for a base64-encoded public key (Ed25519/X25519 keys are small;
+// this generous limit accommodates RSA-4096 public keys in PEM format)
+const MAX_PUBLIC_KEY_LENGTH = 4096;
+
 /**
  * Create anonymous session
  */
@@ -230,7 +234,7 @@ const exchangeKeys = async (req, res) => {
       });
     }
 
-    if (typeof publicKey !== 'string' || publicKey.length > 4096) {
+    if (typeof publicKey !== 'string' || publicKey.length > MAX_PUBLIC_KEY_LENGTH) {
       return res.status(400).json({
         error: 'Invalid public key format',
         timestamp: Date.now(),

@@ -14,6 +14,9 @@ const generateId = () => crypto.randomBytes(16).toString('hex');
 // Maximum allowed encrypted message size (base64-encoded ciphertext)
 const MAX_MESSAGE_SIZE = 64 * 1024; // 64KB
 
+// Maximum search results returned
+const MAX_SEARCH_RESULTS = 100;
+
 // Send message
 const sendMessage = async (req, res) => {
   try {
@@ -288,7 +291,7 @@ const getUserChats = async (req, res) => {
 const searchMessages = async (req, res) => {
   try {
     const { chatId } = req.params;
-    const { q: query, limit = 20 } = req.query;
+    const { q: query, limit = 20, offset = 0 } = req.query;
 
     if (!query || typeof query !== 'string' || query.trim().length < 2) {
       return res.status(400).json({ error: 'Search query must be at least 2 characters' });
@@ -299,14 +302,18 @@ const searchMessages = async (req, res) => {
       return res.status(500).json({ error: 'Database services not available' });
     }
 
-    // Retrieve all messages for this chat and do client-side search
-    // Note: messages are encrypted, so we can only return metadata
-    const messages = await databaseServices.messageStore.getChatMessages(chatId, 500, 0);
-    const results = messages
-      .filter(m => m.id && m.id.includes(query.trim()))
-      .slice(0, Math.min(parseInt(limit), 100));
+    const pageLimit = Math.min(parseInt(limit) || 20, MAX_SEARCH_RESULTS);
+    const pageOffset = Math.max(parseInt(offset) || 0, 0);
 
-    res.json({ results, total: results.length });
+    // Note: messages are end-to-end encrypted so only metadata (id, timestamp, type)
+    // can be searched server-side. Full content search must be done client-side.
+    const messages = await databaseServices.messageStore.getChatMessages(chatId, pageLimit, pageOffset);
+
+    // Filter by messageId prefix (useful for direct message lookup)
+    const trimmedQuery = query.trim().toLowerCase();
+    const results = messages.filter(m => m.id && m.id.toLowerCase().startsWith(trimmedQuery));
+
+    res.json({ results, total: results.length, note: 'Server-side search is limited to message IDs; decrypt messages client-side for full-text search.' });
   } catch (error) {
     logError(error, { context: 'search_messages' });
     res.status(500).json({ error: 'Failed to search messages' });

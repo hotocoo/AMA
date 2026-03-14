@@ -128,7 +128,7 @@ class AnonymousMessageRouter {
       /ip[_\-]?address/i,
       /user[_\-]?agent/i,
       /device[_\-]?id/i,
-      /\blocation\b/i,
+      /\blocation[_\-]?/i,
       /coordinate/i,
       /fingerprint/i,
       /session[_\-]?id/i,

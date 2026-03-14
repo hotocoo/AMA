@@ -529,11 +529,19 @@ class ChatStore {
   }
 
   /**
-   * List all chat IDs (for a session, if session tracks them)
+   * List all chat IDs using SCAN to avoid blocking Redis
    */
   async listChats() {
     const pattern = `${this.chatPrefix}*`;
-    const keys = await this.redis.keys(pattern);
+    const keys = [];
+    let cursor = '0';
+
+    do {
+      const [nextCursor, batch] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+      cursor = nextCursor;
+      keys.push(...batch);
+    } while (cursor !== '0');
+
     if (keys.length === 0) return [];
 
     const chatDataList = await this.redis.mget(...keys);

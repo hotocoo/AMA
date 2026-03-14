@@ -175,19 +175,26 @@ const validateInput = (req, res, next) => {
     // Additional JSON validation will be handled by express.json()
   }
 
-  // Validate request body for SQL injection and XSS
+  // Validate request body for suspicious patterns
   if (req.body && typeof req.body === 'object') {
     const sanitizeObject = (obj) => {
       for (let key in obj) {
         if (typeof obj[key] === 'string') {
-          // Basic sanitization: remove potential script tags
-          obj[key] = obj[key].replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-        } else if (typeof obj[key] === 'object') {
+          // Reject excessively long strings to prevent DoS
+          if (obj[key].length > 1024 * 1024) {
+            // Truncate to avoid memory issues, route handlers do full validation
+            obj[key] = obj[key].substring(0, 1024 * 1024);
+          }
+        } else if (typeof obj[key] === 'object' && obj[key] !== null) {
           sanitizeObject(obj[key]);
         }
       }
     };
     sanitizeObject(req.body);
+    // Note: HTML/script sanitization is intentionally omitted here.
+    // Messages are end-to-end encrypted so plaintext is never exposed.
+    // Non-encrypted fields (chatId, messageType, etc.) are validated
+    // with strict allowlists in each route handler.
   }
 
   next();

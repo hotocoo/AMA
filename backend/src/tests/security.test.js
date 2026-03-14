@@ -88,36 +88,57 @@ describe('Crypto Service', () => {
 });
 
 describe('Input Validation - sanitizeObject', () => {
-  test('removes script tags from string values', () => {
-    const obj = { content: '<script>alert("xss")</script>Hello' };
+  test('truncates excessively long strings to prevent DoS', () => {
+    const obj = { content: 'A'.repeat(1024 * 1024 + 100) };
     // Replicate sanitizeObject logic from security middleware
     const sanitizeObject = (o) => {
       for (const key in o) {
         if (typeof o[key] === 'string') {
-          o[key] = o[key].replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-        } else if (typeof o[key] === 'object') {
+          if (o[key].length > 1024 * 1024) {
+            o[key] = o[key].substring(0, 1024 * 1024);
+          }
+        } else if (typeof o[key] === 'object' && o[key] !== null) {
           sanitizeObject(o[key]);
         }
       }
     };
     sanitizeObject(obj);
-    expect(obj.content).toBe('Hello');
-    expect(obj.content).not.toContain('<script>');
+    expect(obj.content.length).toBe(1024 * 1024);
   });
 
-  test('handles nested objects', () => {
-    const obj = { nested: { val: '<script>bad</script>ok' } };
+  test('does not modify short strings', () => {
+    const obj = { chatId: 'abc123xyz', messageType: 'text' };
     const sanitizeObject = (o) => {
       for (const key in o) {
         if (typeof o[key] === 'string') {
-          o[key] = o[key].replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-        } else if (typeof o[key] === 'object') {
+          if (o[key].length > 1024 * 1024) {
+            o[key] = o[key].substring(0, 1024 * 1024);
+          }
+        } else if (typeof o[key] === 'object' && o[key] !== null) {
           sanitizeObject(o[key]);
         }
       }
     };
     sanitizeObject(obj);
-    expect(obj.nested.val).toBe('ok');
+    expect(obj.chatId).toBe('abc123xyz');
+    expect(obj.messageType).toBe('text');
+  });
+
+  test('handles nested objects', () => {
+    const obj = { nested: { val: 'short string' } };
+    const sanitizeObject = (o) => {
+      for (const key in o) {
+        if (typeof o[key] === 'string') {
+          if (o[key].length > 1024 * 1024) {
+            o[key] = o[key].substring(0, 1024 * 1024);
+          }
+        } else if (typeof o[key] === 'object' && o[key] !== null) {
+          sanitizeObject(o[key]);
+        }
+      }
+    };
+    sanitizeObject(obj);
+    expect(obj.nested.val).toBe('short string');
   });
 });
 

@@ -47,8 +47,8 @@ const safeFilePath = (filename) => {
   // Strip any path separators from filename
   const safe = path.basename(filename).replace(/[^a-zA-Z0-9._-]/g, '_');
   const resolved = path.resolve(UPLOADS_DIR, safe);
-  // Ensure the resolved path is still inside uploads dir
-  if (!resolved.startsWith(UPLOADS_DIR + path.sep) && resolved !== UPLOADS_DIR) {
+  // Ensure the resolved path is still inside uploads dir (files must be direct children)
+  if (!resolved.startsWith(UPLOADS_DIR + path.sep)) {
     throw new Error('Invalid file path');
   }
   return resolved;
