@@ -177,6 +177,7 @@ class AnonymousSessionManager {
 
   /**
    * Get session statistics (privacy-preserving)
+   * Uses pipeline for efficiency instead of N+1 queries
    */
   async getSessionStats() {
     const pattern = `${this.sessionPrefix}*`;
@@ -189,9 +190,13 @@ class AnonymousSessionManager {
       timestamp: Date.now()
     };
 
-    // Count active sessions and messages (without accessing personal data)
-    for (const key of keys) {
-      const sessionData = await this.redis.get(key);
+    if (keys.length === 0) {
+      return stats;
+    }
+
+    // Batch fetch all sessions with a single mget call
+    const sessionDataList = await this.redis.mget(...keys);
+    for (const sessionData of sessionDataList) {
       if (sessionData) {
         const session = JSON.parse(sessionData);
         stats.activeSessions++;
@@ -295,26 +300,33 @@ class MessageStore {
   }
 
   /**
-   * Clean up expired messages
+   * Clean up expired messages using pipeline for efficiency
    */
   async cleanupExpired() {
-    // Redis handles TTL automatically, but we can force cleanup if needed
     const pattern = `${this.messagePrefix}*`;
     const keys = await this.redis.keys(pattern);
 
+    if (keys.length === 0) return 0;
+
+    // Batch fetch all messages
+    const messageDataList = await this.redis.mget(...keys);
+    const pipeline = this.redis.pipeline();
     let cleanedCount = 0;
-    for (const key of keys) {
-      const messageData = await this.redis.get(key);
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+
+    for (let i = 0; i < keys.length; i++) {
+      const messageData = messageDataList[i];
       if (messageData) {
         const message = JSON.parse(messageData);
-        const age = Date.now() - message.timestamp;
-
-        // Force delete very old messages (older than 30 days)
-        if (age > 30 * 24 * 60 * 60 * 1000) {
-          await this.redis.del(key);
+        if (message.timestamp < cutoff) {
+          pipeline.del(keys[i]);
           cleanedCount++;
         }
       }
+    }
+
+    if (cleanedCount > 0) {
+      await pipeline.exec();
     }
 
     return cleanedCount;
@@ -428,15 +440,17 @@ class WebSocketManager {
   }
 
   /**
-   * Get active connections for session
+   * Get active connections for session using pipeline for efficiency
    */
   async getSessionConnections(sessionId) {
     const pattern = `${this.connectionPrefix}*`;
     const keys = await this.redis.keys(pattern);
 
+    if (keys.length === 0) return [];
+
+    const connectionDataList = await this.redis.mget(...keys);
     const connections = [];
-    for (const key of keys) {
-      const connectionData = await this.redis.get(key);
+    for (const connectionData of connectionDataList) {
       if (connectionData) {
         const connection = JSON.parse(connectionData);
         if (connection.sessionId === sessionId) {
@@ -450,13 +464,132 @@ class WebSocketManager {
 }
 
 /**
+ * Chat metadata storage
+ */
+class ChatStore {
+  constructor(redisClient) {
+    this.redis = redisClient;
+    this.chatPrefix = 'chatmeta:';
+    this.defaultChatTTL = 30 * 24 * 60 * 60; // 30 days
+  }
+
+  /**
+   * Create or update chat metadata
+   */
+  async createChat(chatId, chatData = {}) {
+    const chatKey = `${this.chatPrefix}${chatId}`;
+
+    const chat = {
+      id: chatId,
+      created: Date.now(),
+      messageCount: 0,
+      chatType: chatData.chatType || 'private',
+      participantCount: chatData.participantCount || 0,
+      lastActivity: Date.now(),
+      ...chatData,
+    };
+
+    await this.redis.setex(chatKey, this.defaultChatTTL, JSON.stringify(chat));
+    return chat;
+  }
+
+  /**
+   * Get chat metadata
+   */
+  async getChat(chatId) {
+    const chatKey = `${this.chatPrefix}${chatId}`;
+    const chatData = await this.redis.get(chatKey);
+    if (!chatData) return null;
+    return JSON.parse(chatData);
+  }
+
+  /**
+   * Update chat metadata (e.g. increment message count, update lastActivity)
+   */
+  async updateChat(chatId, updates) {
+    const chatKey = `${this.chatPrefix}${chatId}`;
+    const existing = await this.getChat(chatId);
+
+    if (!existing) {
+      // Auto-create if not found
+      return this.createChat(chatId, updates);
+    }
+
+    const updated = { ...existing, ...updates, lastActivity: Date.now() };
+    await this.redis.setex(chatKey, this.defaultChatTTL, JSON.stringify(updated));
+    return updated;
+  }
+
+  /**
+   * Delete chat metadata
+   */
+  async deleteChat(chatId) {
+    const chatKey = `${this.chatPrefix}${chatId}`;
+    await this.redis.del(chatKey);
+  }
+
+  /**
+   * List all chat IDs (for a session, if session tracks them)
+   */
+  async listChats() {
+    const pattern = `${this.chatPrefix}*`;
+    const keys = await this.redis.keys(pattern);
+    if (keys.length === 0) return [];
+
+    const chatDataList = await this.redis.mget(...keys);
+    return chatDataList
+      .filter(d => d !== null)
+      .map(d => JSON.parse(d))
+      .sort((a, b) => b.lastActivity - a.lastActivity);
+  }
+}
+
+/**
+ * Key store for temporary public key storage (for E2E encryption key exchange)
+ */
+class KeyStore {
+  constructor(redisClient) {
+    this.redis = redisClient;
+    this.keyPrefix = 'pubkey:';
+    this.defaultKeyTTL = 24 * 60 * 60; // 24 hours
+  }
+
+  /**
+   * Store a public key for a session
+   */
+  async storePublicKey(sessionId, publicKey) {
+    const keyKey = `${this.keyPrefix}${sessionId}`;
+    await this.redis.setex(keyKey, this.defaultKeyTTL, publicKey);
+  }
+
+  /**
+   * Get public key for a session
+   */
+  async getPublicKey(sessionId) {
+    const keyKey = `${this.keyPrefix}${sessionId}`;
+    return await this.redis.get(keyKey);
+  }
+
+  /**
+   * Delete public key
+   */
+  async deletePublicKey(sessionId) {
+    const keyKey = `${this.keyPrefix}${sessionId}`;
+    await this.redis.del(keyKey);
+  }
+}
+
+/**
  * Initialize database services
  */
 const initializeDatabaseServices = (redisClient) => {
   return {
+    redis: redisClient,
     sessionManager: new AnonymousSessionManager(redisClient),
     messageStore: new MessageStore(redisClient),
     fileStore: new FileStore(redisClient),
+    chatStore: new ChatStore(redisClient),
+    keyStore: new KeyStore(redisClient),
     webSocketManager: new WebSocketManager(redisClient),
   };
 };
@@ -500,5 +633,7 @@ module.exports = {
   AnonymousSessionManager,
   MessageStore,
   FileStore,
+  ChatStore,
+  KeyStore,
   WebSocketManager,
 };

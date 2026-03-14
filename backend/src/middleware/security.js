@@ -243,7 +243,7 @@ const validateWebSocketConnection = (req, res, next) => {
 /**
  * Anti-replay attack protection using Redis
  */
-const replayProtection = (req, res, next) => {
+const replayProtection = async (req, res, next) => {
   // Simple nonce-based replay protection
   const nonce = req.headers['x-request-nonce'];
   const timestamp = req.headers['x-request-timestamp'];
@@ -259,25 +259,22 @@ const replayProtection = (req, res, next) => {
 
     // Check for nonce reuse using Redis
     if (req.anonymousSession && redisClient) {
-      const nonceKey = `nonce:${req.anonymousSession.id}:${nonce}`;
-      redisClient.get(nonceKey, (err, result) => {
-        if (err) {
-          return res.status(500).json({ error: 'Replay protection error' });
-        }
+      try {
+        const nonceKey = `nonce:${req.anonymousSession.id}:${nonce}`;
+        const result = await redisClient.get(nonceKey);
         if (result) {
           return res.status(401).json({ error: 'Nonce already used' });
         }
-
         // Store nonce with 5-minute TTL
-        redisClient.setex(nonceKey, 5 * 60, '1');
-        next();
-      });
-    } else {
-      next();
+        await redisClient.setex(nonceKey, 5 * 60, '1');
+        return next();
+      } catch (err) {
+        return res.status(500).json({ error: 'Replay protection error' });
+      }
     }
-  } else {
-    next();
   }
+
+  next();
 };
 
 /**

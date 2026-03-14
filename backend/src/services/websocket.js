@@ -73,6 +73,15 @@ class WebSocketManager {
       await this.handleSessionRegistration(socket, connectionId, data);
     });
 
+    // Join/leave chat rooms
+    socket.on('join_chat', async (data) => {
+      await this.handleJoinChat(socket, connectionId, data);
+    });
+
+    socket.on('leave_chat', (data) => {
+      this.handleLeaveChat(socket, connectionId, data);
+    });
+
     // Message sending
     socket.on('send_message', async (data) => {
       await this.handleMessage(socket, connectionId, data);
@@ -93,12 +102,12 @@ class WebSocketManager {
     });
 
     // Message reactions
-    socket.on('add_reaction', (data) => {
-      this.handleAddReaction(socket, connectionId, data);
+    socket.on('add_reaction', async (data) => {
+      await this.handleAddReaction(socket, connectionId, data);
     });
 
-    socket.on('remove_reaction', (data) => {
-      this.handleRemoveReaction(socket, connectionId, data);
+    socket.on('remove_reaction', async (data) => {
+      await this.handleRemoveReaction(socket, connectionId, data);
     });
 
     // File sharing
@@ -119,6 +128,11 @@ class WebSocketManager {
       this.handleWebRTCIceCandidate(socket, connectionId, data);
     });
 
+    // Call events
+    socket.on('call_end', (data) => {
+      this.handleCallEnd(socket, connectionId, data);
+    });
+
     // Heartbeat/ping
     socket.on('ping', () => {
       this.handlePing(socket, connectionId);
@@ -133,6 +147,81 @@ class WebSocketManager {
     socket.on('error', (error) => {
       logError(error, { context: 'websocket_error', connectionId });
     });
+  }
+
+  /**
+   * Handle joining a chat room
+   */
+  async handleJoinChat(socket, connectionId, data) {
+    try {
+      const { chatId } = data;
+
+      if (!chatId) {
+        socket.emit('error', { message: 'Chat ID required' });
+        return;
+      }
+
+      socket.join(`chat:${chatId}`);
+
+      // Update chat activity in database if chatStore available
+      if (this.db.chatStore) {
+        await this.db.chatStore.updateChat(chatId, { lastActivity: Date.now() });
+      }
+
+      logWebSocketEvent('joined_chat', {
+        connectionId: connectionId.substring(0, 8) + '...',
+        chatId: chatId.substring(0, 8) + '...'
+      });
+
+      socket.emit('joined_chat', { chatId, timestamp: Date.now() });
+
+      // Notify others in the chat
+      socket.to(`chat:${chatId}`).emit('user_joined', {
+        chatId,
+        timestamp: Date.now(),
+      });
+
+    } catch (error) {
+      logError(error, { context: 'join_chat', connectionId });
+      socket.emit('error', { message: 'Failed to join chat' });
+    }
+  }
+
+  /**
+   * Handle leaving a chat room
+   */
+  handleLeaveChat(socket, connectionId, data) {
+    const { chatId } = data;
+
+    if (chatId) {
+      socket.leave(`chat:${chatId}`);
+
+      logWebSocketEvent('left_chat', {
+        connectionId: connectionId.substring(0, 8) + '...',
+        chatId: chatId.substring(0, 8) + '...'
+      });
+
+      socket.emit('left_chat', { chatId, timestamp: Date.now() });
+
+      socket.to(`chat:${chatId}`).emit('user_left', {
+        chatId,
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  /**
+   * Handle call end signal
+   */
+  handleCallEnd(socket, connectionId, data) {
+    const { chatId } = data;
+
+    if (chatId) {
+      socket.to(`chat:${chatId}`).emit('call_ended', {
+        chatId,
+        timestamp: Date.now(),
+      });
+    }
   }
 
   /**
@@ -501,12 +590,25 @@ class WebSocketManager {
   }
 
   /**
-   * Handle add reaction
+   * Handle add reaction - persist in Redis and broadcast
    */
-  handleAddReaction(socket, connectionId, data) {
+  async handleAddReaction(socket, connectionId, data) {
     const { messageId, chatId, reaction } = data;
 
     if (messageId && chatId && reaction) {
+      // Persist reaction in Redis
+      if (this.db.redis) {
+        const reactionKey = `reactions:${chatId}:${messageId}`;
+        try {
+          const existing = await this.db.redis.get(reactionKey);
+          const reactions = existing ? JSON.parse(existing) : {};
+          reactions[reaction] = (reactions[reaction] || 0) + 1;
+          await this.db.redis.setex(reactionKey, 7 * 24 * 60 * 60, JSON.stringify(reactions));
+        } catch (err) {
+          logError(err, { context: 'reaction_storage' });
+        }
+      }
+
       socket.to(`chat:${chatId}`).emit('reaction_added', {
         messageId,
         chatId,
@@ -517,12 +619,31 @@ class WebSocketManager {
   }
 
   /**
-   * Handle remove reaction
+   * Handle remove reaction - update persistence and broadcast
    */
-  handleRemoveReaction(socket, connectionId, data) {
+  async handleRemoveReaction(socket, connectionId, data) {
     const { messageId, chatId, reaction } = data;
 
     if (messageId && chatId && reaction) {
+      // Update persisted reactions
+      if (this.db.redis) {
+        const reactionKey = `reactions:${chatId}:${messageId}`;
+        try {
+          const existing = await this.db.redis.get(reactionKey);
+          if (existing) {
+            const reactions = JSON.parse(existing);
+            if (reactions[reaction] > 1) {
+              reactions[reaction]--;
+            } else {
+              delete reactions[reaction];
+            }
+            await this.db.redis.setex(reactionKey, 7 * 24 * 60 * 60, JSON.stringify(reactions));
+          }
+        } catch (err) {
+          logError(err, { context: 'reaction_removal' });
+        }
+      }
+
       socket.to(`chat:${chatId}`).emit('reaction_removed', {
         messageId,
         chatId,

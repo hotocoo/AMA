@@ -217,10 +217,11 @@ const getSessionStats = async (req, res) => {
 
 /**
  * Exchange public keys for end-to-end encryption
+ * Temporarily stores the public key for the session
  */
 const exchangeKeys = async (req, res) => {
   try {
-    const { publicKey } = req.body;
+    const { publicKey, sessionId } = req.body;
 
     if (!publicKey) {
       return res.status(400).json({
@@ -229,21 +230,87 @@ const exchangeKeys = async (req, res) => {
       });
     }
 
-    // For anonymous messenger, we don't store keys persistently
-    // In a real implementation, you might store public keys temporarily
-    // or use a key server
+    if (typeof publicKey !== 'string' || publicKey.length > 4096) {
+      return res.status(400).json({
+        error: 'Invalid public key format',
+        timestamp: Date.now(),
+      });
+    }
+
+    const targetSessionId = sessionId || req.anonymousSession?.id;
+    if (!targetSessionId) {
+      return res.status(400).json({
+        error: 'Session ID required for key exchange',
+        timestamp: Date.now(),
+      });
+    }
+
+    // Store public key temporarily in database
+    const databaseServices = req.app.get('database');
+    if (databaseServices && databaseServices.keyStore) {
+      await databaseServices.keyStore.storePublicKey(targetSessionId, publicKey);
+    }
+
+    logAuthEvent('key_exchanged', { id: targetSessionId });
 
     res.json({
       success: true,
-      message: 'Key exchange completed',
+      message: 'Public key stored successfully',
+      sessionId: targetSessionId,
       timestamp: Date.now(),
-      note: 'Public key received, but not stored for anonymity'
     });
 
   } catch (error) {
     logError(error, { context: 'key_exchange' });
     res.status(500).json({
       error: 'Failed to exchange keys',
+      timestamp: Date.now(),
+    });
+  }
+};
+
+/**
+ * Retrieve stored public key for a session
+ */
+const getPublicKey = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    if (!sessionId) {
+      return res.status(400).json({
+        error: 'Session ID required',
+        timestamp: Date.now(),
+      });
+    }
+
+    const databaseServices = req.app.get('database');
+    if (!databaseServices || !databaseServices.keyStore) {
+      return res.status(500).json({
+        error: 'Database services not available',
+        timestamp: Date.now(),
+      });
+    }
+
+    const publicKey = await databaseServices.keyStore.getPublicKey(sessionId);
+    if (!publicKey) {
+      return res.status(404).json({
+        error: 'Public key not found',
+        timestamp: Date.now(),
+      });
+    }
+
+    logAuthEvent('key_retrieved', { id: sessionId });
+
+    res.json({
+      sessionId,
+      publicKey,
+      timestamp: Date.now(),
+    });
+
+  } catch (error) {
+    logError(error, { context: 'get_public_key' });
+    res.status(500).json({
+      error: 'Failed to retrieve public key',
       timestamp: Date.now(),
     });
   }
@@ -256,4 +323,5 @@ module.exports = {
   deleteSession,
   getSessionStats,
   exchangeKeys,
+  getPublicKey,
 };

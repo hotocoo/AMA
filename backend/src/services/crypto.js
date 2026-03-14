@@ -52,7 +52,7 @@ class KeyManager {
 
     return {
       publicKey: Buffer.from(keyPair.publicKey).toString('base64'),
-      privateKey: Buffer.from(keyPair.privateKey).toString('base64'),
+      privateKey: Buffer.from(keyPair.secretKey).toString('base64'),
     };
   }
 
@@ -64,7 +64,7 @@ class KeyManager {
 
     return {
       publicKey: Buffer.from(keyPair.publicKey),
-      privateKey: Buffer.from(keyPair.privateKey),
+      privateKey: Buffer.from(keyPair.secretKey),
     };
   }
 
@@ -126,7 +126,7 @@ class KeyManager {
        const messageBuffer = Buffer.from(message, 'utf8');
 
        // Create cipher
-       const cipher = crypto.createCipherGCM('aes-256-gcm', keyBuffer, iv);
+       const cipher = crypto.createCipheriv('aes-256-gcm', keyBuffer, iv);
 
        // Encrypt message
        let encrypted = cipher.update(messageBuffer, null, 'hex');
@@ -156,7 +156,7 @@ class KeyManager {
        const authTagBuffer = Buffer.from(authTag, 'base64');
 
        // Create decipher
-       const decipher = crypto.createDecipherGCM('aes-256-gcm', keyBuffer, ivBuffer);
+       const decipher = crypto.createDecipheriv('aes-256-gcm', keyBuffer, ivBuffer);
        decipher.setAuthTag(authTagBuffer);
 
        // Decrypt message
@@ -168,6 +168,18 @@ class KeyManager {
        throw new Error(`Message decryption failed: ${error.message}`);
      }
    }
+
+  /**
+   * Generate a signing key pair (Ed25519) for digital signatures
+   */
+  async generateSigningKeyPair() {
+    const keyPair = nacl.sign.keyPair();
+
+    return {
+      publicKey: Buffer.from(keyPair.publicKey).toString('base64'),
+      privateKey: Buffer.from(keyPair.secretKey).toString('base64'),
+    };
+  }
 
   /**
    * Create digital signature

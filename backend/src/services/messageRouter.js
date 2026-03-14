@@ -12,7 +12,6 @@ const { logMessageEvent, logError, logSecurityEvent } = require('../middleware/l
 class AnonymousMessageRouter {
   constructor(databaseServices) {
     this.db = databaseServices;
-    this.redis = databaseServices.redis; // Direct access for convenience
     this.routingTable = new Map(); // In-memory routing for performance
     this.anonymousChannels = new Map(); // Anonymous communication channels
   }
@@ -129,15 +128,13 @@ class AnonymousMessageRouter {
       /ip[_\-]?address/i,
       /user[_\-]?agent/i,
       /device[_\-]?id/i,
-      /location/i,
+      /\blocation\b/i,
       /coordinate/i,
       /fingerprint/i,
       /session[_\-]?id/i,
       /user[_\-]?id/i,
-      /email/i,
-      /phone/i,
-      /name/i,
-      /timestamp/i, // Actual timestamps might be identifying
+      /\bemail\b/i,
+      /\bphone\b/i,
     ];
 
     metadataPatterns.forEach(pattern => {
@@ -394,14 +391,23 @@ class AnonymousMessageRouter {
       let cleanedCount = 0;
       const cutoffTime = Date.now() - 7 * 24 * 60 * 60 * 1000; // 7 days
 
-      for (const key of keys) {
-        const routingData = await this.db.redis.get(key);
-        if (routingData) {
-          const routing = JSON.parse(routingData);
-          if (routing.routedAt < cutoffTime) {
-            await this.db.redis.del(key);
-            cleanedCount++;
+      if (keys.length > 0) {
+        const routingDataList = await this.db.redis.mget(...keys);
+        const pipeline = this.db.redis.pipeline();
+
+        for (let i = 0; i < keys.length; i++) {
+          const routingData = routingDataList[i];
+          if (routingData) {
+            const routing = JSON.parse(routingData);
+            if (routing.routedAt < cutoffTime) {
+              pipeline.del(keys[i]);
+              cleanedCount++;
+            }
           }
+        }
+
+        if (cleanedCount > 0) {
+          await pipeline.exec();
         }
       }
 
