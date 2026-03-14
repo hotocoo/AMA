@@ -45,6 +45,14 @@ class AnonymousMessengerServer {
     try {
       console.log('🚀 Initializing Anonymous Messenger Server...');
 
+      // Ensure uploads directory exists
+      const fs = require('fs');
+      const uploadsDir = require('path').join(__dirname, '../uploads');
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+        console.log('📁 Created uploads directory');
+      }
+
       // Initialize cryptographic systems
       await initializeCrypto();
 
@@ -131,7 +139,7 @@ class AnonymousMessengerServer {
       max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 1000,
       message: {
         error: 'Too many requests from this IP, please try again later.',
-        retryAfter: Math.ceil(parseInt(process.env.RATE_LIMIT_WINDOW_MS) / 1000)
+        retryAfter: Math.ceil((parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 900000) / 1000)
       },
       standardHeaders: true,
       legacyHeaders: false,

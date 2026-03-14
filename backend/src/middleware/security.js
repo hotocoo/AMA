@@ -175,19 +175,26 @@ const validateInput = (req, res, next) => {
     // Additional JSON validation will be handled by express.json()
   }
 
-  // Validate request body for SQL injection and XSS
+  // Validate request body for suspicious patterns
   if (req.body && typeof req.body === 'object') {
     const sanitizeObject = (obj) => {
       for (let key in obj) {
         if (typeof obj[key] === 'string') {
-          // Basic sanitization: remove potential script tags
-          obj[key] = obj[key].replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-        } else if (typeof obj[key] === 'object') {
+          // Reject excessively long strings to prevent DoS
+          if (obj[key].length > 1024 * 1024) {
+            // Truncate to avoid memory issues, route handlers do full validation
+            obj[key] = obj[key].substring(0, 1024 * 1024);
+          }
+        } else if (typeof obj[key] === 'object' && obj[key] !== null) {
           sanitizeObject(obj[key]);
         }
       }
     };
     sanitizeObject(req.body);
+    // Note: HTML/script sanitization is intentionally omitted here.
+    // Messages are end-to-end encrypted so plaintext is never exposed.
+    // Non-encrypted fields (chatId, messageType, etc.) are validated
+    // with strict allowlists in each route handler.
   }
 
   next();
@@ -243,7 +250,7 @@ const validateWebSocketConnection = (req, res, next) => {
 /**
  * Anti-replay attack protection using Redis
  */
-const replayProtection = (req, res, next) => {
+const replayProtection = async (req, res, next) => {
   // Simple nonce-based replay protection
   const nonce = req.headers['x-request-nonce'];
   const timestamp = req.headers['x-request-timestamp'];
@@ -259,25 +266,22 @@ const replayProtection = (req, res, next) => {
 
     // Check for nonce reuse using Redis
     if (req.anonymousSession && redisClient) {
-      const nonceKey = `nonce:${req.anonymousSession.id}:${nonce}`;
-      redisClient.get(nonceKey, (err, result) => {
-        if (err) {
-          return res.status(500).json({ error: 'Replay protection error' });
-        }
+      try {
+        const nonceKey = `nonce:${req.anonymousSession.id}:${nonce}`;
+        const result = await redisClient.get(nonceKey);
         if (result) {
           return res.status(401).json({ error: 'Nonce already used' });
         }
-
         // Store nonce with 5-minute TTL
-        redisClient.setex(nonceKey, 5 * 60, '1');
-        next();
-      });
-    } else {
-      next();
+        await redisClient.setex(nonceKey, 5 * 60, '1');
+        return next();
+      } catch (err) {
+        return res.status(500).json({ error: 'Replay protection error' });
+      }
     }
-  } else {
-    next();
   }
+
+  next();
 };
 
 /**

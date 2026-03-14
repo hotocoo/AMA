@@ -31,18 +31,21 @@ const setupRoutes = (app) => {
 
   // Health check (no rate limiting)
   app.get('/health', healthController.getHealth);
+  app.get('/health/detailed', healthController.getDetailedStats);
 
   // API routes with rate limiting
   app.use('/api', createRateLimit(900000, 1000, 'API rate limit exceeded'));
 
   // Session management routes
   app.post('/api/session/create', sessionController.createSession);
+  app.get('/api/session/stats', sessionController.getSessionStats);
   app.get('/api/session/:sessionId', sessionController.getSession);
   app.put('/api/session/:sessionId', sessionController.updateSession);
   app.delete('/api/session/:sessionId', sessionController.deleteSession);
 
   // Message routes
   app.post('/api/messages/send', messageController.sendMessage);
+  app.get('/api/messages/:chatId/search', messageController.searchMessages);
   app.get('/api/messages/:chatId', messageController.getChatMessages);
   app.get('/api/messages/:chatId/:messageId', messageController.getMessage);
   app.delete('/api/messages/:chatId/:messageId', messageController.deleteMessage);
@@ -55,17 +58,20 @@ const setupRoutes = (app) => {
 
   // Chat routes
   app.post('/api/chats/create', createRateLimit(3600000, 10, 'Chat creation rate limit exceeded'), messageController.createChat);
-  app.get('/api/chats/:chatId', messageController.getChatInfo);
   app.get('/api/chats', messageController.getUserChats);
+  app.get('/api/chats/:chatId', messageController.getChatInfo);
 
   // WebRTC signaling routes (for fallback)
-  app.post('/api/webrtc/signal', createRateLimit(60000, 100, 'WebRTC signaling rate limit exceeded'));
+  app.post('/api/webrtc/signal', createRateLimit(60000, 100, 'WebRTC signaling rate limit exceeded'), (req, res) => {
+    res.json({ status: 'signal_received', timestamp: Date.now() });
+  });
 
   // Key exchange for end-to-end encryption
   app.post('/api/keys/exchange', createRateLimit(60000, 10, 'Key exchange rate limit exceeded'), sessionController.exchangeKeys);
+  app.get('/api/keys/:sessionId', createRateLimit(60000, 20, 'Key lookup rate limit exceeded'), sessionController.getPublicKey);
 
   // Statistics (privacy-preserving)
-  app.get('/api/stats', createRateLimit(3600000, 10, 'Statistics rate limit exceeded'));
+  app.get('/api/stats', createRateLimit(3600000, 10, 'Statistics rate limit exceeded'), sessionController.getSessionStats);
 
   // Error handling middleware
   app.use((error, req, res, next) => {
