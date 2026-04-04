@@ -13,6 +13,7 @@ const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
 const path = require('path');
+const fs = require('fs');
 
 // Import security and core modules
 const { setupSecurity, setRedisClient } = require('./middleware/security');
@@ -20,7 +21,7 @@ const { setupLogging } = require('./middleware/logging');
 const { setupRoutes } = require('./routes');
 const { setupWebSocket } = require('./services/websocket');
 const { initializeCrypto } = require('./services/crypto');
-const { connectDatabase, initializeDatabaseServices } = require('./config/database');
+const { connectDatabase, closeDatabase, initializeDatabaseServices } = require('./config/database');
 
 class AnonymousMessengerServer {
   constructor() {
@@ -45,6 +46,13 @@ class AnonymousMessengerServer {
     try {
       console.log('🚀 Initializing Anonymous Messenger Server...');
 
+      // Ensure uploads directory exists
+      const uploadsDir = path.join(__dirname, '../uploads');
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+        console.log('📁 Uploads directory created');
+      }
+
       // Initialize cryptographic systems
       await initializeCrypto();
 
@@ -64,17 +72,18 @@ class AnonymousMessengerServer {
       // Setup core middleware
       this.setupMiddleware();
 
+      // Setup logging BEFORE routes so error logging middleware covers route errors
+      setupLogging(this.app);
+
       // Setup API routes
       setupRoutes(this.app);
 
       // Setup WebSocket handlers
-      setupWebSocket(this.io, databaseServices);
+      const wsManager = setupWebSocket(this.io, databaseServices);
 
-      // Make database services available to routes
+      // Make database services and websocket manager available to routes
       this.app.set('database', databaseServices);
-
-      // Setup logging
-      setupLogging(this.app);
+      this.app.set('websocket', wsManager);
 
       // Start server
       this.startServer();
@@ -199,7 +208,11 @@ class AnonymousMessengerServer {
       });
 
       // Close database connections
-      // await closeDatabase();
+      try {
+        await closeDatabase();
+      } catch (err) {
+        console.error('❌ Error closing database:', err.message);
+      }
 
       console.log('✅ Graceful shutdown completed.');
       process.exit(0);
@@ -227,4 +240,7 @@ process.on('unhandledRejection', (reason, promise) => {
 // Start the server
 const server = new AnonymousMessengerServer();
 
-module.exports = server;
+// Export the HTTP server for use with supertest and external access
+module.exports = server.server;
+module.exports.app = server.app;
+module.exports.instance = server;

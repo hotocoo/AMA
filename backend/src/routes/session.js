@@ -217,10 +217,11 @@ const getSessionStats = async (req, res) => {
 
 /**
  * Exchange public keys for end-to-end encryption
+ * Stores the public key temporarily in Redis with session TTL.
  */
 const exchangeKeys = async (req, res) => {
   try {
-    const { publicKey } = req.body;
+    const { publicKey, sessionId: targetSessionId } = req.body;
 
     if (!publicKey) {
       return res.status(400).json({
@@ -229,15 +230,30 @@ const exchangeKeys = async (req, res) => {
       });
     }
 
-    // For anonymous messenger, we don't store keys persistently
-    // In a real implementation, you might store public keys temporarily
-    // or use a key server
+    const db = req.app.get('database');
+    if (!db) {
+      return res.status(500).json({ error: 'Database services not available' });
+    }
+
+    // Store public key in Redis keyed by session ID, expire in 24h
+    const ownerSessionId = req.anonymousSession?.id;
+    if (ownerSessionId) {
+      const keyEntry = `pubkey:${ownerSessionId}`;
+      await db.sessionManager.redis.setex(keyEntry, 24 * 60 * 60, publicKey);
+    }
+
+    // If caller wants to look up another session's public key
+    let recipientPublicKey = null;
+    if (targetSessionId) {
+      const keyEntry = `pubkey:${targetSessionId}`;
+      recipientPublicKey = await db.sessionManager.redis.get(keyEntry);
+    }
 
     res.json({
       success: true,
       message: 'Key exchange completed',
+      recipientPublicKey: recipientPublicKey || null,
       timestamp: Date.now(),
-      note: 'Public key received, but not stored for anonymity'
     });
 
   } catch (error) {
