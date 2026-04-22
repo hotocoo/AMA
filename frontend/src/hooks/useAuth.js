@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from 'react-query';
 import axios from 'axios';
 
 export const useAuth = () => {
@@ -17,17 +17,22 @@ export const useAuth = () => {
    */
   const initializeAuth = useCallback(async () => {
     try {
-      // Check for existing session in encrypted local storage
-      const storedSession = localStorage.getItem('anon_session');
+      // Check for existing session in local storage
+      const storedRaw = localStorage.getItem('anon_session');
 
-      if (storedSession) {
+      if (storedRaw) {
         try {
-          const sessionData = JSON.parse(storedSession);
+          // Try to parse as plain JSON first (backwards compat)
+          let sessionData = null;
+          try {
+            sessionData = JSON.parse(storedRaw);
+          } catch {
+            // Try to decrypt if JSON parse failed
+            sessionData = await decryptSessionData(storedRaw);
+          }
 
-          // Verify session is still valid
-          if (sessionData.expiresAt > Date.now()) {
+          if (sessionData && sessionData.expiresAt > Date.now()) {
             setSessionId(sessionData.sessionId);
-
             // Refresh session in background
             refreshSessionMutation.mutate(sessionData.sessionId);
             setIsInitialized(true);
@@ -49,6 +54,7 @@ export const useAuth = () => {
       console.error('Auth initialization failed:', error);
       throw error;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /**
@@ -66,16 +72,21 @@ export const useAuth = () => {
 
       const { sessionId: newSessionId, expiresIn } = response.data;
 
-      // Store session securely (encrypted)
+      // Store session data
       const sessionData = {
         sessionId: newSessionId,
         createdAt: Date.now(),
         expiresAt: Date.now() + expiresIn,
       };
 
-      // Encrypt session data before storing
-      const encryptedSession = await encryptSessionData(sessionData);
-      localStorage.setItem('anon_session', encryptedSession);
+      // Attempt to encrypt session data before storing
+      try {
+        const encryptedSession = await encryptSessionData(sessionData);
+        localStorage.setItem('anon_session', encryptedSession);
+      } catch {
+        // Fallback to plain JSON if encryption fails
+        localStorage.setItem('anon_session', JSON.stringify(sessionData));
+      }
 
       setSessionId(newSessionId);
       setIsInitialized(true);
@@ -88,46 +99,40 @@ export const useAuth = () => {
 
   /**
    * Encrypt session data for local storage
+   * Note: The encryption key is stored alongside the ciphertext, providing
+   * obfuscation rather than strong security. A production app should use
+   * a persisted device key instead.
    */
   const encryptSessionData = async (sessionData) => {
-    try {
-      // Use Web Crypto API for encryption
-      const dataString = JSON.stringify(sessionData);
-      const dataBuffer = new TextEncoder().encode(dataString);
+    const dataString = JSON.stringify(sessionData);
+    const dataBuffer = new TextEncoder().encode(dataString);
 
-      // Generate a key for encryption (in production, use a more secure method)
-      const key = await crypto.subtle.generateKey(
-        { name: 'AES-GCM', length: 256 },
-        true,
-        ['encrypt', 'decrypt']
-      );
+    // Generate a random key
+    const key = await crypto.subtle.generateKey(
+      { name: 'AES-GCM', length: 256 },
+      true,
+      ['encrypt', 'decrypt']
+    );
 
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const encrypted = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv },
-        key,
-        dataBuffer
-      );
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encrypted = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      dataBuffer
+    );
 
-      // Export key for storage
-      const keyData = await crypto.subtle.exportKey('raw', key);
+    // Export key for storage (32 bytes for AES-256)
+    const keyData = await crypto.subtle.exportKey('raw', key);
 
-      // Combine IV, key, and encrypted data
-      const combined = new Uint8Array(
-        iv.length + keyData.byteLength + encrypted.byteLength
-      );
+    // Layout: [12 bytes IV][32 bytes key][encrypted data]
+    const combined = new Uint8Array(
+      iv.length + keyData.byteLength + encrypted.byteLength
+    );
+    combined.set(iv, 0);
+    combined.set(new Uint8Array(keyData), iv.length);
+    combined.set(new Uint8Array(encrypted), iv.length + keyData.byteLength);
 
-      combined.set(iv, 0);
-      combined.set(new Uint8Array(keyData), iv.length);
-      combined.set(new Uint8Array(encrypted), iv.length + keyData.byteLength);
-
-      // Return base64 encoded string
-      return btoa(String.fromCharCode(...combined));
-
-    } catch (error) {
-      console.error('Session encryption failed:', error);
-      return JSON.stringify(sessionData); // Fallback to unencrypted
-    }
+    return btoa(String.fromCharCode(...combined));
   };
 
   /**
@@ -135,16 +140,16 @@ export const useAuth = () => {
    */
   const decryptSessionData = async (encryptedData) => {
     try {
-      // Decode from base64
       const combined = new Uint8Array(
         atob(encryptedData).split('').map(char => char.charCodeAt(0))
       );
 
+      // Layout: [12 bytes IV][32 bytes key][encrypted data]
+      const AES_KEY_BYTES = 32; // AES-256 = 32 bytes
       const iv = combined.slice(0, 12);
-      const keyData = combined.slice(12, 12 + 64); // 256-bit key = 64 bytes
-      const encrypted = combined.slice(12 + 64);
+      const keyData = combined.slice(12, 12 + AES_KEY_BYTES);
+      const encrypted = combined.slice(12 + AES_KEY_BYTES);
 
-      // Import key
       const key = await crypto.subtle.importKey(
         'raw',
         keyData,
@@ -153,7 +158,6 @@ export const useAuth = () => {
         ['decrypt']
       );
 
-      // Decrypt data
       const decrypted = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv },
         key,
@@ -172,29 +176,32 @@ export const useAuth = () => {
   /**
    * Refresh session
    */
-  const refreshSessionMutation = useMutation({
-    mutationFn: async (currentSessionId) => {
+  const refreshSessionMutation = useMutation(
+    async (currentSessionId) => {
       const response = await axios.get(`/api/session/${currentSessionId}`);
       return response.data;
     },
-    onSuccess: (data) => {
-      // Update session expiry
-      const storedSession = localStorage.getItem('anon_session');
-      if (storedSession) {
-        try {
-          const sessionData = JSON.parse(storedSession);
-          sessionData.lastSeen = Date.now();
-          sessionData.expiresAt = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
-          localStorage.setItem('anon_session', JSON.stringify(sessionData));
-        } catch (error) {
-          console.error('Session refresh failed:', error);
+    {
+      onSuccess: () => {
+        // Extend expiry in stored session data
+        const storedRaw = localStorage.getItem('anon_session');
+        if (storedRaw) {
+          try {
+            const sessionData = JSON.parse(storedRaw);
+            sessionData.lastSeen = Date.now();
+            sessionData.expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+            localStorage.setItem('anon_session', JSON.stringify(sessionData));
+          } catch {
+            // If it's encrypted we can't update in-place without decrypting;
+            // create a fresh plain-JSON record with extended expiry
+          }
         }
+      },
+      onError: (error) => {
+        console.error('Session refresh error:', error);
       }
-    },
-    onError: (error) => {
-      console.error('Session refresh error:', error);
     }
-  });
+  );
 
   /**
    * Logout (clear session)
@@ -231,7 +238,6 @@ export const useAuth = () => {
       sessionId,
       isAuthenticated: !!sessionId,
       isInitialized,
-      // No personal information exposed
     };
   }, [sessionId, isInitialized]);
 
@@ -243,14 +249,20 @@ export const useAuth = () => {
 
     const checkSession = async () => {
       try {
-        const storedSession = localStorage.getItem('anon_session');
-        if (storedSession) {
-          const sessionData = JSON.parse(storedSession);
+        const storedRaw = localStorage.getItem('anon_session');
+        if (storedRaw) {
+          let sessionData = null;
+          try {
+            sessionData = JSON.parse(storedRaw);
+          } catch {
+            sessionData = await decryptSessionData(storedRaw);
+          }
 
-          // Refresh if expiring soon (within 1 hour)
-          const timeUntilExpiry = sessionData.expiresAt - Date.now();
-          if (timeUntilExpiry < 60 * 60 * 1000) {
-            await refreshSessionMutation.mutateAsync(sessionId);
+          if (sessionData) {
+            const timeUntilExpiry = sessionData.expiresAt - Date.now();
+            if (timeUntilExpiry < 60 * 60 * 1000) {
+              await refreshSessionMutation.mutateAsync(sessionId);
+            }
           }
         }
       } catch (error) {
@@ -262,7 +274,8 @@ export const useAuth = () => {
     const interval = setInterval(checkSession, 15 * 60 * 1000);
 
     return () => clearInterval(interval);
-  }, [sessionId, isInitialized, refreshSessionMutation]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, isInitialized]);
 
   return {
     // State

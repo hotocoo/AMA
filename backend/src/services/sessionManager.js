@@ -7,6 +7,20 @@ const crypto = require('crypto');
 const { logAuthEvent, logSecurityEvent, logError } = require('../middleware/logging');
 
 /**
+ * Scan all keys matching a pattern using SCAN (non-blocking)
+ */
+const scanKeys = async (redis, pattern) => {
+  const keys = [];
+  let cursor = '0';
+  do {
+    const [nextCursor, batch] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+    cursor = nextCursor;
+    keys.push(...batch);
+  } while (cursor !== '0');
+  return keys;
+};
+
+/**
  * Advanced Anonymous Session Manager Class
  */
 class AdvancedAnonymousSessionManager {
@@ -270,12 +284,12 @@ class AdvancedAnonymousSessionManager {
   }
 
   /**
-   * Advanced session analytics (privacy-preserving)
+   * Advanced session analytics (privacy-preserving) — uses SCAN
    */
   async getAdvancedSessionStats() {
     try {
       const pattern = `${this.sessionPrefix}primary:*`;
-      const keys = await this.redis.keys(pattern);
+      const keys = await scanKeys(this.redis, pattern);
 
       const stats = {
         totalSessions: keys.length,
@@ -334,12 +348,12 @@ class AdvancedAnonymousSessionManager {
   }
 
   /**
-   * Perform periodic session rotations
+   * Perform periodic session rotations — uses SCAN
    */
   async performPeriodicRotations() {
     try {
       const pattern = `${this.sessionPrefix}primary:*`;
-      const keys = await this.redis.keys(pattern);
+      const keys = await scanKeys(this.redis, pattern);
 
       let rotationsPerformed = 0;
 
@@ -375,13 +389,13 @@ class AdvancedAnonymousSessionManager {
   }
 
   /**
-   * Clean up expired sessions and rotation data
+   * Clean up expired sessions and rotation data — uses SCAN
    */
   async cleanupExpiredSessions() {
     try {
       const now = Date.now();
       const pattern = `${this.sessionPrefix}primary:*`;
-      const keys = await this.redis.keys(pattern);
+      const keys = await scanKeys(this.redis, pattern);
 
       let cleanedCount = 0;
 
@@ -399,9 +413,9 @@ class AdvancedAnonymousSessionManager {
         }
       }
 
-      // Clean up old rotation records (older than 7 days)
+      // Clean up old rotation records (older than 7 days) — uses SCAN
       const rotationPattern = `${this.rotationPrefix}*`;
-      const rotationKeys = await this.redis.keys(rotationPattern);
+      const rotationKeys = await scanKeys(this.redis, rotationPattern);
 
       for (const key of rotationKeys) {
         const age = now - parseInt(key.split(':').pop());
@@ -444,9 +458,9 @@ class AdvancedAnonymousSessionManager {
       const baseKey = `${this.sessionPrefix}base:${session.baseId}`;
       await this.redis.del(baseKey);
 
-      // Clean up rotation records
+      // Clean up rotation records for this session — uses SCAN
       const rotationPattern = `${this.rotationPrefix}${sessionId}:*`;
-      const rotationKeys = await this.redis.keys(rotationPattern);
+      const rotationKeys = await scanKeys(this.redis, rotationPattern);
       if (rotationKeys.length > 0) {
         await this.redis.del(...rotationKeys);
       }

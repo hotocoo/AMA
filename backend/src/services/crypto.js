@@ -126,7 +126,7 @@ class KeyManager {
        const messageBuffer = Buffer.from(message, 'utf8');
 
        // Create cipher
-       const cipher = crypto.createCipherGCM('aes-256-gcm', keyBuffer, iv);
+       const cipher = crypto.createCipheriv('aes-256-gcm', keyBuffer, iv);
 
        // Encrypt message
        let encrypted = cipher.update(messageBuffer, null, 'hex');
@@ -156,7 +156,7 @@ class KeyManager {
        const authTagBuffer = Buffer.from(authTag, 'base64');
 
        // Create decipher
-       const decipher = crypto.createDecipherGCM('aes-256-gcm', keyBuffer, ivBuffer);
+       const decipher = crypto.createDecipheriv('aes-256-gcm', keyBuffer, ivBuffer);
        decipher.setAuthTag(authTagBuffer);
 
        // Decrypt message

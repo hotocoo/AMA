@@ -73,6 +73,15 @@ class WebSocketManager {
       await this.handleSessionRegistration(socket, connectionId, data);
     });
 
+    // Join / leave chat rooms
+    socket.on('join_chat', (data) => {
+      this.handleJoinChat(socket, connectionId, data);
+    });
+
+    socket.on('leave_chat', (data) => {
+      this.handleLeaveChat(socket, connectionId, data);
+    });
+
     // Message sending
     socket.on('send_message', async (data) => {
       await this.handleMessage(socket, connectionId, data);
@@ -133,6 +142,32 @@ class WebSocketManager {
     socket.on('error', (error) => {
       logError(error, { context: 'websocket_error', connectionId });
     });
+  }
+
+  /**
+   * Handle join chat room
+   */
+  handleJoinChat(socket, connectionId, data) {
+    const { chatId } = data;
+    if (!chatId) {
+      socket.emit('error', { message: 'chatId required to join' });
+      return;
+    }
+    this.joinChat(socket, chatId);
+    socket.emit('joined_chat', { chatId, timestamp: Date.now() });
+  }
+
+  /**
+   * Handle leave chat room
+   */
+  handleLeaveChat(socket, connectionId, data) {
+    const { chatId } = data;
+    if (!chatId) {
+      socket.emit('error', { message: 'chatId required to leave' });
+      return;
+    }
+    this.leaveChat(socket, chatId);
+    socket.emit('left_chat', { chatId, timestamp: Date.now() });
   }
 
   /**
@@ -354,6 +389,12 @@ class WebSocketManager {
    * Handle ping/heartbeat
    */
   handlePing(socket, connectionId) {
+    // Update in-memory last ping time
+    const connection = this.connections.get(socket.id);
+    if (connection) {
+      connection.lastPing = Date.now();
+    }
+
     // Update connection ping in database
     this.db.webSocketManager.updateConnectionPing(connectionId);
 
@@ -368,11 +409,11 @@ class WebSocketManager {
    */
   async handleDisconnection(socket, connectionId) {
     try {
+      // Get connection info BEFORE removing from in-memory tracking
+      const connection = this.connections.get(socket.id);
+
       // Remove from in-memory tracking
       this.connections.delete(socket.id);
-
-      // Get connection info for cleanup
-      const connection = await this.db.webSocketManager.updateConnectionPing(connectionId);
 
       if (connection?.sessionId) {
         // Remove from anonymous session tracking
@@ -467,18 +508,20 @@ class WebSocketManager {
   }
 
   /**
-   * Clean up stale connections
+   * Clean up stale connections (inactive for more than 10 minutes)
    */
   async cleanupStaleConnections() {
     try {
       const now = Date.now();
-      const staleThreshold = 10 * 60 * 1000; // 10 minutes
+      const staleThreshold = 10 * 60 * 1000; // 10 minutes without ping
 
       // Clean up in-memory connections
       for (const [socketId, connection] of this.connections.entries()) {
-        const age = now - connection.connectedAt;
+        // Use lastPing if available, otherwise fall back to connectedAt
+        const lastActivity = connection.lastPing || connection.connectedAt;
+        const inactiveTime = now - lastActivity;
 
-        if (age > staleThreshold) {
+        if (inactiveTime > staleThreshold) {
           this.connections.delete(socketId);
 
           // Also clean up database

@@ -3,50 +3,86 @@
  * Handles anonymous file operations with database integration
  */
 
-const express = require('express');
-const router = express.Router();
 const crypto = require('crypto');
+const fs = require('fs').promises;
+const path = require('path');
 const { logMessageEvent, logError } = require('../middleware/logging');
 
 // Generate unique IDs
 const generateId = () => crypto.randomBytes(16).toString('hex');
 
+// Allowed MIME types for uploaded files
+const ALLOWED_MIME_TYPES = new Set([
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
+  'video/mp4', 'video/webm', 'video/ogg',
+  'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/webm',
+  'application/pdf',
+  'text/plain',
+  'application/zip',
+]);
+
+// 50 MB limit for encrypted file data (base64 increases size ~33%)
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
+
+// Uploads directory relative to this file
+const UPLOADS_DIR = path.join(__dirname, '../../uploads');
+
+/**
+ * Helper to get database services
+ */
+const getDb = (req, res) => {
+  const db = req.app.get('database');
+  if (!db) {
+    res.status(500).json({ error: 'Database services not available' });
+    return null;
+  }
+  return db;
+};
+
 // Upload file
 const uploadFile = async (req, res) => {
   try {
-    // For this implementation, expect file data in body (base64 or similar)
-    // In a real app, use multer for multipart/form-data
     const { originalName, encryptedData, size, type, hash } = req.body;
 
     if (!originalName || !encryptedData || !type) {
       return res.status(400).json({ error: 'Missing required fields: originalName, encryptedData, type' });
     }
 
-    // Get database services from app
-    const databaseServices = req.app.get('database');
-    if (!databaseServices || !databaseServices.fileStore) {
-      return res.status(500).json({ error: 'Database services not available' });
+    // Validate MIME type
+    if (!ALLOWED_MIME_TYPES.has(type)) {
+      return res.status(400).json({ error: 'File type not allowed' });
     }
 
+    // Validate file size (base64 encoded)
+    if (encryptedData.length > MAX_FILE_SIZE * 1.4) {
+      return res.status(413).json({ error: 'File too large' });
+    }
+
+    const db = getDb(req, res);
+    if (!db) return;
+
     const fileId = generateId();
+    // Use only the fileId as the stored filename to avoid path traversal
+    const storedFilename = fileId;
+    const filePath = path.join(UPLOADS_DIR, storedFilename);
+
     const fileInfo = {
-      originalName,
-      encryptedName: `${fileId}_${originalName}`,
-      size: size || Buffer.from(encryptedData, 'base64').length,
+      originalName: path.basename(originalName), // strip any path components
+      encryptedName: storedFilename,
+      size: size || Buffer.byteLength(encryptedData, 'base64'),
       type,
       hash: hash || crypto.createHash('sha256').update(encryptedData).digest('hex')
     };
 
-    // Store encrypted file data in uploads directory
-    const fs = require('fs').promises;
-    const path = require('path');
-    const filePath = path.join(__dirname, '../uploads', fileInfo.encryptedName);
+    // Ensure uploads directory exists
+    await fs.mkdir(UPLOADS_DIR, { recursive: true });
+
+    // Store encrypted file data on disk (decoded from base64)
     await fs.writeFile(filePath, encryptedData, 'base64');
 
     // Store file metadata in database
-    await databaseServices.fileStore.storeFile(fileId, fileInfo);
+    await db.fileStore.storeFile(fileId, fileInfo);
 
-    // Log file upload event
     logMessageEvent('file_uploaded', {
       id: fileId.substring(0, 8) + '...',
       size: fileInfo.size,
@@ -56,7 +92,7 @@ const uploadFile = async (req, res) => {
     res.json({
       success: true,
       fileId,
-      filename: originalName,
+      filename: fileInfo.originalName,
       size: fileInfo.size
     });
   } catch (error) {
@@ -70,13 +106,10 @@ const getFile = async (req, res) => {
   try {
     const { fileId } = req.params;
 
-    // Get database services from app
-    const databaseServices = req.app.get('database');
-    if (!databaseServices || !databaseServices.fileStore) {
-      return res.status(500).json({ error: 'Database services not available' });
-    }
+    const db = getDb(req, res);
+    if (!db) return;
 
-    const fileInfo = await databaseServices.fileStore.getFile(fileId);
+    const fileInfo = await db.fileStore.getFile(fileId);
     if (!fileInfo) {
       return res.status(404).json({ error: 'File not found' });
     }
@@ -93,34 +126,32 @@ const downloadFile = async (req, res) => {
   try {
     const { fileId } = req.params;
 
-    // Get database services from app
-    const databaseServices = req.app.get('database');
-    if (!databaseServices || !databaseServices.fileStore) {
-      return res.status(500).json({ error: 'Database services not available' });
-    }
+    const db = getDb(req, res);
+    if (!db) return;
 
-    const fileInfo = await databaseServices.fileStore.getFile(fileId);
+    const fileInfo = await db.fileStore.getFile(fileId);
     if (!fileInfo) {
       return res.status(404).json({ error: 'File not found' });
     }
 
-    // Serve the actual encrypted file
-    const fs = require('fs').promises;
-    const path = require('path');
-    const filePath = path.join(__dirname, '../uploads', fileInfo.encryptedName);
+    // Use only the stored filename (which is the fileId) — no user-controlled path
+    const filePath = path.join(UPLOADS_DIR, fileInfo.encryptedName);
 
     try {
-      const fileData = await fs.readFile(filePath, 'base64');
+      // Read raw binary and convert to base64 for the client
+      const rawData = await fs.readFile(filePath);
+      const encryptedData = rawData.toString('base64');
+
       res.json({
         fileId,
         filename: fileInfo.originalName,
         type: fileInfo.type,
         size: fileInfo.size,
         hash: fileInfo.hash,
-        encryptedData: fileData
+        encryptedData
       });
     } catch (fileError) {
-      return res.status(404).json({ error: 'File not found on disk' });
+      return res.status(404).json({ error: 'File data not found on disk' });
     }
   } catch (error) {
     logError(error, { context: 'download_file' });
@@ -133,13 +164,19 @@ const deleteFile = async (req, res) => {
   try {
     const { fileId } = req.params;
 
-    // Get database services from app
-    const databaseServices = req.app.get('database');
-    if (!databaseServices || !databaseServices.fileStore) {
-      return res.status(500).json({ error: 'Database services not available' });
-    }
+    const db = getDb(req, res);
+    if (!db) return;
 
-    await databaseServices.fileStore.deleteFile(fileId);
+    const fileInfo = await db.fileStore.getFile(fileId);
+
+    // Remove from database first
+    await db.fileStore.deleteFile(fileId);
+
+    // Remove from disk if metadata was found
+    if (fileInfo) {
+      const filePath = path.join(UPLOADS_DIR, fileInfo.encryptedName);
+      await fs.unlink(filePath).catch(() => {}); // ignore if file already gone
+    }
 
     res.json({ success: true });
   } catch (error) {
